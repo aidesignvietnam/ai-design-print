@@ -261,11 +261,27 @@ const handleCreate = async () => {
     </div>
   </div>
 ) : generatedImage ? (
-  <img
-    src={generatedImage}
-    className="canvas-image"
-    alt="AI generated design"
-  />
+  <div className="generated-result">
+
+    <img
+      src={generatedImage}
+      className="canvas-image"
+      alt="AI generated design"
+    />
+
+    <button
+      className="download-button"
+      onClick={() => {
+        const link = document.createElement("a");
+        link.href = generatedImage;
+        link.download = `AI-Design-${designType}-${width}x${height}.png`;
+        link.click();
+      }}
+    >
+      ↓ TẢI XUỐNG PNG
+    </button>
+
+  </div>
 ) : uploadedImage ? (
   <img
     src={uploadedImage}
