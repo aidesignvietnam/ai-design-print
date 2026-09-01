@@ -83,11 +83,7 @@ const handleCreate = async () => {
     setGenerating(false);
   }
 };
-  } finally {
-    setGenerating(false);
-  }
-};
-
+ 
 const handleDownloadPDF = () => {
   if (!generatedImage) return;
 
