@@ -236,49 +236,41 @@ const handleCreate = async () => {
 
             <div className="design-canvas">
 
-{generated ? (
-  <div className="demo-design">
+{generating ? (
+  <div className="empty-canvas">
+    <div className="canvas-icon">✦</div>
 
-    <div className="demo-decoration demo-top">
-      ✦ ✦ ✦
+    <div className="canvas-empty-title">
+      ĐANG TẠO THIẾT KẾ...
     </div>
 
-    <div className="demo-content">
-
-      <div className="demo-small">
-        {designType.toUpperCase()}
-      </div>
-
-      <h1>THIẾT KẾ AI</h1>
-
-      <h2>
-        {prompt
-          ? prompt.slice(0, 70)
-          : "Ý TƯỞNG THIẾT KẾ SẴN SÀNG"}
-      </h2>
-
-      <div className="demo-line"></div>
-
-      <div className="demo-size">
-        {width} × {height} {unit}
-      </div>
-
-      <div className="demo-style">
-        PHONG CÁCH: {style.toUpperCase()}
-      </div>
-
+    <div className="canvas-empty-text">
+      AI đang thiết kế {designType} {width} × {height} {unit}
     </div>
-
-    <div className="demo-decoration demo-bottom">
-      ✦ ✦ ✦
-    </div>
-
   </div>
+) : error ? (
+  <div className="empty-canvas">
+    <div className="canvas-icon">!</div>
+
+    <div className="canvas-empty-title">
+      KHÔNG THỂ TẠO THIẾT KẾ
+    </div>
+
+    <div className="canvas-empty-text">
+      {error}
+    </div>
+  </div>
+) : generatedImage ? (
+  <img
+    src={generatedImage}
+    className="canvas-image"
+    alt="AI generated design"
+  />
 ) : uploadedImage ? (
   <img
     src={uploadedImage}
     className="canvas-image"
-    alt="Canvas"
+    alt="Uploaded design"
   />
 ) : (
   <div className="empty-canvas">
@@ -301,7 +293,6 @@ const handleCreate = async () => {
 
   </div>
 )}
-
             </div>
 
           </div>
