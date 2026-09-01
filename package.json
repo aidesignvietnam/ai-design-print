@@ -8,12 +8,12 @@
     "build": "vite build",
     "preview": "vite preview"
   },
- "dependencies": {
-  "react": "^19.1.1",
-  "react-dom": "^19.1.1",
-  "openai": "^5.19.1",
-  "jspdf": "^4.0.0"
-}
+  "dependencies": {
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "openai": "^5.19.1",
+    "jspdf": "^4.0.0"
+  },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",
     "vite": "^6.3.5"
