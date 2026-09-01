@@ -38,17 +38,13 @@ function App() {
     setUploadedImage(URL.createObjectURL(file));
   };
 
-  const handleCreate = () => {
-    if (!toolOn) return;
+  const [generated, setGenerated] = useState(false);
 
-    alert(
-      `AI DESIGN PRINT\n\n` +
-        `Loại: ${designType}\n` +
-        `Kích thước: ${width} × ${height} ${unit}\n` +
-        `Phong cách: ${style}\n\n` +
-        `Yêu cầu:\n${prompt || "Chưa nhập yêu cầu"}`
-    );
-  };
+const handleCreate = () => {
+  if (!toolOn) return;
+
+  setGenerated(true);
+};
 
   return (
     <div className={`app ${toolOn ? "" : "tool-off"}`}>
@@ -203,33 +199,71 @@ function App() {
 
             <div className="design-canvas">
 
-              {uploadedImage ? (
-                <img
-                  src={uploadedImage}
-                  className="canvas-image"
-                  alt="Canvas"
-                />
-              ) : (
-                <div className="empty-canvas">
+{generated ? (
+  <div className="demo-design">
 
-                  <div className="canvas-icon">
-                    ✦
-                  </div>
+    <div className="demo-decoration demo-top">
+      ✦ ✦ ✦
+    </div>
 
-                  <div className="canvas-empty-title">
-                    YOUR DESIGN
-                  </div>
+    <div className="demo-content">
 
-                  <div className="canvas-empty-text">
-                    AI generated artwork will appear here
-                  </div>
+      <div className="demo-small">
+        {designType.toUpperCase()}
+      </div>
 
-                  <div className="canvas-size">
-                    {width || "300"} × {height || "270"} {unit}
-                  </div>
+      <h1>THIẾT KẾ AI</h1>
 
-                </div>
-              )}
+      <h2>
+        {prompt
+          ? prompt.slice(0, 70)
+          : "Ý TƯỞNG THIẾT KẾ SẴN SÀNG"}
+      </h2>
+
+      <div className="demo-line"></div>
+
+      <div className="demo-size">
+        {width} × {height} {unit}
+      </div>
+
+      <div className="demo-style">
+        PHONG CÁCH: {style.toUpperCase()}
+      </div>
+
+    </div>
+
+    <div className="demo-decoration demo-bottom">
+      ✦ ✦ ✦
+    </div>
+
+  </div>
+) : uploadedImage ? (
+  <img
+    src={uploadedImage}
+    className="canvas-image"
+    alt="Canvas"
+  />
+) : (
+  <div className="empty-canvas">
+
+    <div className="canvas-icon">
+      ✦
+    </div>
+
+    <div className="canvas-empty-title">
+      YOUR DESIGN
+    </div>
+
+    <div className="canvas-empty-text">
+      AI generated artwork will appear here
+    </div>
+
+    <div className="canvas-size">
+      {width || "300"} × {height || "270"} {unit}
+    </div>
+
+  </div>
+)}
 
             </div>
 
