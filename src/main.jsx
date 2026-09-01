@@ -5,334 +5,434 @@ import "./style.css";
 function App() {
   const [toolOn, setToolOn] = useState(true);
   const [designType, setDesignType] = useState("Backdrop");
-  const [width, setWidth] = useState("");
-  const [height, setHeight] = useState("");
-  const [unit, setUnit] = useState("m");
-  const [content, setContent] = useState("");
+  const [width, setWidth] = useState("300");
+  const [height, setHeight] = useState("270");
+  const [unit, setUnit] = useState("cm");
+  const [prompt, setPrompt] = useState("");
   const [style, setStyle] = useState("Hiện đại");
-  const [image, setImage] = useState(null);
+  const [uploadedImage, setUploadedImage] = useState(null);
 
-  const handleImage = (event) => {
+  const designTypes = [
+    "Backdrop",
+    "Biển quảng cáo",
+    "Banner",
+    "Poster",
+    "Standee",
+    "Tờ rơi",
+  ];
+
+  const styles = [
+    "Hiện đại",
+    "Sang trọng",
+    "Tối giản",
+    "Thiếu nhi",
+    "Khai giảng",
+    "Sự kiện",
+  ];
+
+  const handleUpload = (event) => {
     const file = event.target.files?.[0];
 
     if (!file) return;
 
-    const imageUrl = URL.createObjectURL(file);
-    setImage(imageUrl);
+    setUploadedImage(URL.createObjectURL(file));
   };
 
-  const createDesign = () => {
+  const handleCreate = () => {
     if (!toolOn) return;
 
     alert(
-      `Yêu cầu thiết kế đã được ghi nhận!\n\n` +
-      `Loại: ${designType}\n` +
-      `Kích thước: ${width || "--"} × ${height || "--"} ${unit}\n` +
-      `Phong cách: ${style}\n\n` +
-      `Nội dung:\n${content || "Chưa nhập nội dung"}`
+      `AI DESIGN PRINT\n\n` +
+        `Loại: ${designType}\n` +
+        `Kích thước: ${width} × ${height} ${unit}\n` +
+        `Phong cách: ${style}\n\n` +
+        `Yêu cầu:\n${prompt || "Chưa nhập yêu cầu"}`
     );
   };
 
   return (
-    <div className="app">
+    <div className={`app ${toolOn ? "" : "tool-off"}`}>
 
-      {/* HEADER */}
+      {/* TOP BAR */}
       <header className="topbar">
-        <div className="brand-area">
-          <div className="brand-icon">AI</div>
+
+        <div className="logo-area">
+          <div className="logo-mark">AI</div>
 
           <div>
-            <div className="brand">AI DESIGN PRINT</div>
-            <div className="subtitle">
-              Thiết kế Backdrop • Biển quảng cáo • In ấn
+            <div className="logo-title">AI DESIGN PRINT</div>
+            <div className="logo-subtitle">
+              PROFESSIONAL DESIGN STUDIO
             </div>
           </div>
         </div>
 
-        <div className="power-area">
-          <span className={toolOn ? "power-status active" : "power-status"}>
-            ● {toolOn ? "ĐANG HOẠT ĐỘNG" : "ĐANG TẮT"}
-          </span>
+        <div className="top-actions">
+
+          <div className="ai-status">
+            <span className="status-dot"></span>
+            AI SYSTEM ONLINE
+          </div>
 
           <button
-            className={toolOn ? "power-button on" : "power-button off"}
+            className={`power-switch ${toolOn ? "active" : ""}`}
             onClick={() => setToolOn(!toolOn)}
           >
+            <span></span>
             {toolOn ? "ON" : "OFF"}
           </button>
+
         </div>
       </header>
 
-      {/* MAIN */}
-      <main className="workspace">
+      {/* MAIN APPLICATION */}
+      <div className="studio">
 
-        <section className="hero">
-          <div>
-            <span className="badge">VERSION 1.0</span>
+        {/* LEFT SIDEBAR */}
+        <aside className="sidebar">
 
-            <h1>
-              Tạo thiết kế
-              <span> bằng AI</span>
-            </h1>
-
-            <p>
-              Nhập yêu cầu, kích thước và phong cách.
-              <br />
-              AI Design Print sẽ hỗ trợ xây dựng ý tưởng thiết kế.
-            </p>
+          <div className="sidebar-heading">
+            <span>CREATE</span>
+            <small>01</small>
           </div>
-        </section>
 
-        <div className="layout">
+          <div className="tool-list">
 
-          {/* LEFT */}
-          <section className="panel">
+            {designTypes.map((type, index) => (
+              <button
+                key={type}
+                className={`tool-item ${
+                  designType === type ? "selected" : ""
+                }`}
+                onClick={() => setDesignType(type)}
+                disabled={!toolOn}
+              >
+                <span className="tool-number">
+                  {String(index + 1).padStart(2, "0")}
+                </span>
 
-            <div className="section-title">
-              <span>01</span>
-              <h2>Loại thiết kế</h2>
-            </div>
+                <span>{type}</span>
+              </button>
+            ))}
 
-            <div className="design-types">
-              {[
-                "Backdrop",
-                "Biển quảng cáo",
-                "Banner",
-                "Poster",
-                "Standee",
-                "In ấn",
-              ].map((type) => (
-                <button
-                  key={type}
-                  className={
-                    designType === type
-                      ? "type active"
-                      : "type"
-                  }
-                  onClick={() => setDesignType(type)}
-                  disabled={!toolOn}
-                >
-                  {type}
-                </button>
-              ))}
-            </div>
+          </div>
 
-            <div className="section-title">
-              <span>02</span>
-              <h2>Kích thước</h2>
-            </div>
+          <div className="sidebar-divider"></div>
 
-            <div className="size-row">
+          <div className="sidebar-heading">
+            <span>ASSETS</span>
+            <small>02</small>
+          </div>
 
-              <div className="input-group">
-                <label>Chiều ngang</label>
-
-                <input
-                  type="number"
-                  placeholder="3"
-                  value={width}
-                  onChange={(e) => setWidth(e.target.value)}
-                  disabled={!toolOn}
-                />
-              </div>
-
-              <div className="input-group">
-                <label>Chiều cao</label>
-
-                <input
-                  type="number"
-                  placeholder="2.7"
-                  value={height}
-                  onChange={(e) => setHeight(e.target.value)}
-                  disabled={!toolOn}
-                />
-              </div>
-
-              <div className="input-group unit">
-                <label>Đơn vị</label>
-
-                <select
-                  value={unit}
-                  onChange={(e) => setUnit(e.target.value)}
-                  disabled={!toolOn}
-                >
-                  <option value="m">m</option>
-                  <option value="cm">cm</option>
-                  <option value="mm">mm</option>
-                </select>
-              </div>
-
-            </div>
-
-            <div className="section-title">
-              <span>03</span>
-              <h2>Nội dung thiết kế</h2>
-            </div>
-
-            <textarea
-              className="content-input"
-              placeholder={
-                "Ví dụ:\nKHAI GIẢNG NĂM HỌC 2026 - 2027\nTrường Mầm non Kids World\nNgày ... tháng ... năm ..."
-              }
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
+          <label className="upload-button">
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleUpload}
               disabled={!toolOn}
             />
 
-            <div className="section-title">
-              <span>04</span>
-              <h2>Phong cách</h2>
+            <span className="upload-symbol">↑</span>
+
+            <span>
+              <strong>Upload Image</strong>
+              <small>PNG / JPG / WEBP</small>
+            </span>
+          </label>
+
+          {uploadedImage && (
+            <div className="asset-preview">
+              <img src={uploadedImage} alt="Uploaded asset" />
+            </div>
+          )}
+
+          <div className="sidebar-bottom">
+            <div className="version">AI DESIGN PRINT</div>
+            <div className="version-number">VERSION 1.0 PRO</div>
+          </div>
+
+        </aside>
+
+        {/* CENTER CANVAS */}
+        <main className="canvas-area">
+
+          <div className="canvas-toolbar">
+
+            <div className="canvas-title">
+              <span>CANVAS</span>
+              <strong>{designType}</strong>
             </div>
 
-            <select
-              className="style-select"
-              value={style}
-              onChange={(e) => setStyle(e.target.value)}
-              disabled={!toolOn}
-            >
-              <option>Hiện đại</option>
-              <option>Sang trọng</option>
-              <option>Tối giản</option>
-              <option>Thiếu nhi</option>
-              <option>Khai giảng</option>
-              <option>Sự kiện</option>
-              <option>Theo yêu cầu</option>
-            </select>
+            <div className="canvas-tools">
 
-            <div className="section-title">
-              <span>05</span>
-              <h2>Logo / hình ảnh</h2>
+              <button title="Undo">↶</button>
+              <button title="Redo">↷</button>
+
+              <span className="toolbar-divider"></span>
+
+              <button title="Zoom out">−</button>
+
+              <span className="zoom-value">100%</span>
+
+              <button title="Zoom in">+</button>
+
             </div>
 
-            <label className="upload-box">
-              <input
-                type="file"
-                accept="image/*"
-                onChange={handleImage}
-                disabled={!toolOn}
-              />
+          </div>
 
-              <div className="upload-icon">＋</div>
+          <div className="canvas-workspace">
 
-              <div>
-                <strong>Tải ảnh hoặc logo</strong>
-                <small>PNG, JPG, WEBP</small>
-              </div>
-            </label>
-
-            {image && (
-              <div className="uploaded-preview">
-                <img src={image} alt="Logo tải lên" />
-              </div>
-            )}
-
-            <button
-              className="create-button"
-              onClick={createDesign}
-              disabled={!toolOn}
-            >
-              ✨ TẠO THIẾT KẾ AI
-            </button>
-
-          </section>
-
-          {/* RIGHT */}
-          <section className="preview-panel">
-
-            <div className="preview-header">
-              <div>
-                <span className="preview-label">LIVE PREVIEW</span>
-                <h2>Xem trước thiết kế</h2>
-              </div>
-
-              <span className="preview-size">
-                {width || "--"} × {height || "--"} {unit}
-              </span>
+            <div className="canvas-ruler horizontal">
+              <span>0</span>
+              <span>50</span>
+              <span>100</span>
+              <span>150</span>
+              <span>200</span>
+              <span>250</span>
+              <span>300</span>
             </div>
 
-            <div className="preview-box">
+            <div className="canvas-ruler vertical">
+              <span>0</span>
+              <span>50</span>
+              <span>100</span>
+              <span>150</span>
+              <span>200</span>
+              <span>250</span>
+            </div>
 
-              {image ? (
+            <div className="design-canvas">
+
+              {uploadedImage ? (
                 <img
-                  className="preview-image"
-                  src={image}
-                  alt="Preview"
+                  src={uploadedImage}
+                  className="canvas-image"
+                  alt="Canvas"
                 />
               ) : (
-                <div className="preview-placeholder">
+                <div className="empty-canvas">
 
-                  <div className="preview-icon">
+                  <div className="canvas-icon">
                     ✦
                   </div>
 
-                  <h3>Chưa có thiết kế</h3>
+                  <div className="canvas-empty-title">
+                    YOUR DESIGN
+                  </div>
 
-                  <p>
-                    Nhập thông tin bên trái
-                    <br />
-                    và bắt đầu tạo thiết kế bằng AI.
-                  </p>
+                  <div className="canvas-empty-text">
+                    AI generated artwork will appear here
+                  </div>
+
+                  <div className="canvas-size">
+                    {width || "300"} × {height || "270"} {unit}
+                  </div>
 
                 </div>
               )}
 
             </div>
 
-            <div className="preview-info">
+          </div>
 
-              <div>
-                <span>LOẠI</span>
-                <strong>{designType}</strong>
-              </div>
+          <div className="canvas-bottom">
 
-              <div>
-                <span>PHONG CÁCH</span>
-                <strong>{style}</strong>
-              </div>
-
-              <div>
-                <span>KÍCH THƯỚC</span>
-                <strong>
-                  {width || "--"} × {height || "--"} {unit}
-                </strong>
-              </div>
-
+            <div>
+              <span>DOCUMENT</span>
+              <strong>
+                {width || "--"} × {height || "--"} {unit}
+              </strong>
             </div>
 
-            <div className="export-area">
+            <div>
+              <span>TYPE</span>
+              <strong>{designType}</strong>
+            </div>
 
-              <div className="export-title">
-                <h3>Xuất thiết kế</h3>
-                <span>VECTOR / PRINT</span>
-              </div>
+            <div>
+              <span>STATUS</span>
+              <strong className="ready">READY</strong>
+            </div>
 
-              <div className="export-buttons">
+          </div>
 
-                <button disabled>PNG</button>
-                <button disabled>JPG</button>
-                <button disabled>PDF</button>
-                <button disabled>SVG</button>
-                <button className="cdr" disabled>
-                  CDR
-                </button>
+        </main>
 
-              </div>
+        {/* RIGHT PANEL */}
+        <aside className="properties">
 
-              <small>
-                Xuất file sẽ được kích hoạt sau khi thiết kế AI
-                được tạo.
-              </small>
+          <div className="properties-header">
+            <div>
+              <span>AI DESIGN</span>
+              <h2>Properties</h2>
+            </div>
+
+            <div className="properties-icon">✦</div>
+          </div>
+
+          {/* SIZE */}
+          <section className="property-section">
+
+            <div className="property-heading">
+              <span>01</span>
+              <strong>Canvas Size</strong>
+            </div>
+
+            <div className="size-inputs">
+
+              <label>
+                <span>W</span>
+                <input
+                  type="number"
+                  value={width}
+                  onChange={(e) => setWidth(e.target.value)}
+                  disabled={!toolOn}
+                />
+              </label>
+
+              <span className="multiply">×</span>
+
+              <label>
+                <span>H</span>
+                <input
+                  type="number"
+                  value={height}
+                  onChange={(e) => setHeight(e.target.value)}
+                  disabled={!toolOn}
+                />
+              </label>
+
+              <select
+                value={unit}
+                onChange={(e) => setUnit(e.target.value)}
+                disabled={!toolOn}
+              >
+                <option value="mm">mm</option>
+                <option value="cm">cm</option>
+                <option value="m">m</option>
+              </select>
 
             </div>
 
           </section>
 
-        </div>
+          {/* PROMPT */}
+          <section className="property-section">
 
-      </main>
+            <div className="property-heading">
+              <span>02</span>
+              <strong>Design Brief</strong>
+            </div>
 
-      <footer>
-        AI DESIGN PRINT • Backdrop • Signage • Printing
+            <textarea
+              className="ai-prompt"
+              placeholder={
+                "Mô tả thiết kế bạn muốn tạo...\n\nVí dụ: Backdrop khai giảng trường mầm non, màu sắc vui tươi, có hình các em nhỏ..."
+              }
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              disabled={!toolOn}
+            />
+
+          </section>
+
+          {/* STYLE */}
+          <section className="property-section">
+
+            <div className="property-heading">
+              <span>03</span>
+              <strong>Visual Style</strong>
+            </div>
+
+            <div className="style-grid">
+
+              {styles.map((item) => (
+                <button
+                  key={item}
+                  className={style === item ? "style active" : "style"}
+                  onClick={() => setStyle(item)}
+                  disabled={!toolOn}
+                >
+                  {item}
+                </button>
+              ))}
+
+            </div>
+
+          </section>
+
+          {/* AI BUTTON */}
+          <button
+            className="generate-button"
+            onClick={handleCreate}
+            disabled={!toolOn}
+          >
+            <span className="generate-icon">✦</span>
+
+            <span>
+              <strong>GENERATE DESIGN</strong>
+              <small>CREATE WITH AI</small>
+            </span>
+
+            <span className="arrow">→</span>
+          </button>
+
+          {/* EXPORT */}
+          <section className="export-section">
+
+            <div className="property-heading">
+              <span>04</span>
+              <strong>Export</strong>
+            </div>
+
+            <div className="export-grid">
+
+              <button disabled>
+                <strong>PNG</strong>
+                <small>IMAGE</small>
+              </button>
+
+              <button disabled>
+                <strong>JPG</strong>
+                <small>IMAGE</small>
+              </button>
+
+              <button disabled>
+                <strong>PDF</strong>
+                <small>PRINT</small>
+              </button>
+
+              <button disabled>
+                <strong>SVG</strong>
+                <small>VECTOR</small>
+              </button>
+
+              <button className="cdr-button" disabled>
+                <strong>CDR</strong>
+                <small>COREL</small>
+              </button>
+
+            </div>
+
+          </section>
+
+        </aside>
+
+      </div>
+
+      {/* FOOTER */}
+      <footer className="footer">
+
+        <span>AI DESIGN PRINT</span>
+
+        <span>
+          BACKDROP • SIGNAGE • PRINTING
+        </span>
+
+        <span>
+          SYSTEM READY
+        </span>
+
       </footer>
 
     </div>
