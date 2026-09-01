@@ -314,6 +314,23 @@ const handleDownloadPDF = () => {
 >
   ↓ TẢI XUỐNG PDF
 </button>
+    <div className="edit-design-box">
+  <textarea
+    className="edit-design-input"
+    placeholder="Nhập yêu cầu chỉnh sửa thiết kế..."
+    rows="3"
+    value={editPrompt}
+    onChange={(e) => setEditPrompt(e.target.value)}
+  />
+
+  <button
+    className="download-button"
+    onClick={handleEdit}
+    disabled={!editPrompt.trim() || generating}
+  >
+    ✦ CHỈNH SỬA THIẾT KẾ
+  </button>
+</div>
   </div>
 ) : uploadedImage ? (
   <img
