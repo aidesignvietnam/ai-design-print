@@ -3,5 +3,7 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   plugins: [react()],
-  base: "/ai-design-print/"
+  base: process.env.VERCEL
+    ? "/"
+    : "/ai-design-print/"
 });
