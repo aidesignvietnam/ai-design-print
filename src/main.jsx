@@ -84,7 +84,47 @@ const handleCreate = async () => {
     setGenerating(false);
   }
 };
- 
+ const handleEdit = async () => {
+  if (!toolOn || generating || !generatedImage || !editPrompt.trim()) {
+    return;
+  }
+
+  setGenerating(true);
+  setError("");
+
+  try {
+    const response = await fetch("/api/edit", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        image: generatedImage,
+        editPrompt,
+        designType,
+        width,
+        height,
+        unit,
+        style,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Không thể chỉnh sửa thiết kế.");
+    }
+
+    setGeneratedImage(data.image);
+    setGenerated(true);
+    setEditPrompt("");
+  } catch (err) {
+    console.error(err);
+    setError(err.message || "Có lỗi xảy ra.");
+  } finally {
+    setGenerating(false);
+  }
+};
 const handleDownloadPDF = () => {
   if (!generatedImage) return;
 
