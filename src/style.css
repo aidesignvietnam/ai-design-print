@@ -890,3 +890,14 @@ select:disabled {
     grid-template-columns: repeat(3, 1fr);
   }
 }
+.demo-design {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 300px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: #ffffff !important;
+  position: relative !important;
+  z-index: 100 !important;
+}
