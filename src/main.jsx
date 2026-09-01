@@ -43,6 +43,7 @@ function App() {
 const handleCreate = () => {
   if (!toolOn) return;
 
+  alert("DEMO ĐÃ CHẠY!");
   setGenerated(true);
 };
 
