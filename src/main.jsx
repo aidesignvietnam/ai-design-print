@@ -38,12 +38,49 @@ function App() {
     setUploadedImage(URL.createObjectURL(file));
   };
 
-  const [generated, setGenerated] = useState(false);
+const [generated, setGenerated] = useState(false);
+const [generatedImage, setGeneratedImage] = useState(null);
+const [generating, setGenerating] = useState(false);
+const [error, setError] = useState("");
 
-const handleCreate = () => {
-  if (!toolOn) return;
+const handleCreate = async () => {
+  if (!toolOn || generating) return;
 
-  setGenerated(true);
+  setGenerating(true);
+  setGenerated(false);
+  setGeneratedImage(null);
+  setError("");
+
+  try {
+    const response = await fetch("/api/generate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        designType,
+        width,
+        height,
+        unit,
+        prompt,
+        style,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Không thể tạo thiết kế.");
+    }
+
+    setGeneratedImage(data.image);
+    setGenerated(true);
+  } catch (err) {
+    console.error(err);
+    setError(err.message || "Có lỗi xảy ra.");
+  } finally {
+    setGenerating(false);
+  }
 };
 
   return (
