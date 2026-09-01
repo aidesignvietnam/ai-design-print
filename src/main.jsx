@@ -10,6 +10,7 @@ function App() {
   const [height, setHeight] = useState("270");
   const [unit, setUnit] = useState("cm");
   const [prompt, setPrompt] = useState("");
+  const [editPrompt, setEditPrompt] = useState("");
   const [style, setStyle] = useState("Hiện đại");
   const [uploadedImage, setUploadedImage] = useState(null);
 
