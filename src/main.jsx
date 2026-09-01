@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { jsPDF } from "jspdf";
 import ReactDOM from "react-dom/client";
 import "./style.css";
 
@@ -82,8 +83,39 @@ const handleCreate = async () => {
     setGenerating(false);
   }
 };
+  } finally {
+    setGenerating(false);
+  }
+};
+
+const handleDownloadPDF = () => {
+  if (!generatedImage) return;
+
+  const pdf = new jsPDF({
+    orientation: Number(width) >= Number(height) ? "landscape" : "portrait",
+    unit: "mm",
+    format: [
+      Number(width) * 10,
+      Number(height) * 10,
+    ],
+  });
+
+  pdf.addImage(
+    generatedImage,
+    "PNG",
+    0,
+    0,
+    Number(width) * 10,
+    Number(height) * 10
+  );
+
+  pdf.save(
+    `AI-Design-${designType}-${width}x${height}-${unit}.pdf`
+  );
+};
 
   return (
+
     <div className={`app ${toolOn ? "" : "tool-off"}`}>
 
       {/* TOP BAR */}
@@ -280,7 +312,12 @@ const handleCreate = async () => {
     >
       ↓ TẢI XUỐNG PNG
     </button>
-
+<button
+  className="download-button"
+  onClick={handleDownloadPDF}
+>
+  ↓ TẢI XUỐNG PDF
+</button>
   </div>
 ) : uploadedImage ? (
   <img
