@@ -344,51 +344,63 @@ const handleDownloadPDF = () => {
       {error}
     </div>
   </div>
+```jsx
 ) : generatedImage ? (
   <div className="generated-result">
 
-    <img
-      src={generatedImage}
-      className="canvas-image"
-      alt="AI generated design"
-    />
+    <div className="generated-image-wrap">
+      <img
+        src={generatedImage}
+        className="canvas-image"
+        alt="AI generated design"
+      />
+    </div>
 
-    <button
-      className="download-button"
-      onClick={() => {
-        const link = document.createElement("a");
-        link.href = generatedImage;
-        link.download = `AI-Design-${designType}-${width}x${height}.png`;
-        link.click();
-      }}
-    >
-      ↓ TẢI XUỐNG PNG
-    </button>
-<button
-  className="download-button"
-  onClick={handleDownloadPDF}
->
-  ↓ TẢI XUỐNG PDF
-</button>
-    <div className="edit-design-box">
-  <textarea
-    className="edit-design-input"
-    placeholder="Nhập yêu cầu chỉnh sửa thiết kế..."
-    rows="3"
-    value={editPrompt}
-    onChange={(e) => setEditPrompt(e.target.value)}
-  />
+    <div className="generated-actions">
 
-  <button
-    className="download-button"
-    onClick={handleEdit}
-    disabled={!editPrompt.trim() || generating}
-  >
-    ✦ CHỈNH SỬA THIẾT KẾ
-  </button>
-</div>
+      <button
+        className="download-button"
+        onClick={() => {
+          const link = document.createElement("a");
+          link.href = generatedImage;
+          link.download = `AI-Design-${designType}-${width}x${height}.png`;
+          link.click();
+        }}
+      >
+        ↓ TẢI XUỐNG PNG
+      </button>
+
+      <button
+        className="download-button"
+        onClick={handleDownloadPDF}
+      >
+        ↓ TẢI XUỐNG PDF
+      </button>
+
+      <div className="edit-design-box">
+        <textarea
+          className="edit-design-input"
+          placeholder="Nhập yêu cầu chỉnh sửa thiết kế..."
+          rows="3"
+          value={editPrompt}
+          onChange={(e) => setEditPrompt(e.target.value)}
+        />
+
+        <button
+          className="download-button"
+          onClick={handleEdit}
+          disabled={!editPrompt.trim() || generating}
+        >
+          ✦ CHỈNH SỬA THIẾT KẾ
+        </button>
+      </div>
+
+    </div>
+
   </div>
 ) : uploadedImage ? (
+  <img
+```
   <img
     src={uploadedImage}
     className="canvas-image"
