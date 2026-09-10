@@ -342,13 +342,18 @@ const handleDownloadPDF = () => {
     </div>
   </div>
 ) : generatedImage ? (
-  <div className="generated-result">
-
-    <img
-      src={generatedImage}
-      className="canvas-image"
-      alt="AI generated design"
-    />
+ <div
+  className="generated-preview"
+  style={{
+    aspectRatio: `${Number(width) || 300} / ${Number(height) || 270}`,
+  }}
+>
+  <img
+    src={generatedImage}
+    className="canvas-image"
+    alt="AI generated design"
+  />
+</div>
 
     <button
       className="download-button"
