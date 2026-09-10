@@ -48,6 +48,17 @@ const [error, setError] = useState("");
 const handleCreate = async () => {
   if (!toolOn || generating) return;
 
+  const w = Number(width);
+  const h = Number(height);
+
+  if (!w || !h || w <= 0 || h <= 0) {
+    setError("Vui lòng nhập kích thước W × H hợp lệ.");
+    return;
+  }
+
+  // Tính tỷ lệ thiết kế
+  const aspectRatio = w / h;
+
   setGenerating(true);
   setGenerated(false);
   setGeneratedImage(null);
@@ -61,11 +72,12 @@ const handleCreate = async () => {
       },
       body: JSON.stringify({
         designType,
-        width,
-        height,
+        width: w,
+        height: h,
         unit,
         prompt,
         style,
+        aspectRatio,
       }),
     });
 
