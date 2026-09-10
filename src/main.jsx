@@ -314,9 +314,12 @@ const handleDownloadPDF = () => {
               <span>200</span>
               <span>250</span>
             </div>
-
-            <div className="design-canvas">
-
+          <div
+  className="design-canvas"
+  style={{
+    aspectRatio: `${Number(width) || 300} / ${Number(height) || 270}`,
+  }}
+>
 {generating ? (
   <div className="empty-canvas">
     <div className="canvas-icon">✦</div>
