@@ -342,11 +342,13 @@ const handleDownloadPDF = () => {
     </div>
   </div>
 ) : generatedImage ? (
-<img
-  src={generatedImage}
-  className="canvas-image"
-  alt="AI generated design"
-/>
+  <div className="generated-result">
+
+    <img
+      src={generatedImage}
+      className="canvas-image"
+      alt="AI generated design"
+    />
 
     <button
       className="download-button"
