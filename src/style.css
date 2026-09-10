@@ -416,7 +416,7 @@ select:disabled {
 
 .design-canvas {
   width: min(72%, 720px);
-  aspect-ratio: 300 / 270;
+ aspect-ratio: auto;
   background: #f4f5f7;
   border: 1px solid #4b5361;
   box-shadow:
