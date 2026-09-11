@@ -1,6 +1,6 @@
 import OpenAI from "openai";
-import { toFile } from "openai/uploads";
 import sharp from "sharp";
+import { toFile } from "openai/uploads";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -14,149 +14,112 @@ function getRatio(width, height) {
   return Number(width) / Number(height);
 }
 
-function isExtremeRatio(width, height) {
+function getTargetPixelSize(width, height) {
   const ratio = getRatio(width, height);
 
-  return ratio >= 2.5 || ratio <= 0.4;
+  /*
+   * Dùng chiều rộng 1536px làm chuẩn.
+   * Chiều cao được tính chính xác theo tỷ lệ người dùng nhập.
+   *
+   * Ví dụ:
+   * 400 x 70
+   * 1536 / 5.714 = khoảng 269px
+   */
+  const targetWidth = 1536;
+  const targetHeight = Math.max(
+    128,
+    Math.round(targetWidth / ratio)
+  );
+
+  return {
+    width: targetWidth,
+    height: targetHeight,
+  };
 }
 
-/*
- * Tạo prompt cho AI mở rộng một BỐI CẢNH duy nhất.
- *
- * Mục tiêu:
- * - Không nhân bản nội dung chính.
- * - Không tạo người/sản phẩm/chữ mới.
- * - Không chia ảnh thành 3 phần.
- * - Chỉ mở rộng không gian nền.
- */
-function buildPrompt({
-  targetWidth,
-  targetHeight,
+function getExtensionPrompt({
+  width,
+  height,
+  unit,
   designType,
   style,
+  content,
 }) {
-  const ratio = getRatio(targetWidth, targetHeight);
+  const ratio = getRatio(width, height);
 
   return `
-You are preparing a professional large-format advertising design.
+You are an expert large-format advertising designer.
 
-TARGET PHYSICAL SIZE:
-${targetWidth} × ${targetHeight} cm
+We are preparing artwork for:
 
-TARGET ASPECT RATIO:
+${width} ${unit} × ${height} ${unit}
+
+Aspect ratio:
 ${ratio.toFixed(3)} : 1
 
-DESIGN TYPE:
-${designType || "Advertising banner"}
+Design type:
+${designType || "Banner"}
 
-STYLE:
-${style || "Professional"}
+Style:
+${style || "Hiện đại"}
+
+Design brief:
+${content || "Professional advertising design."}
 
 IMPORTANT:
 
-The supplied image contains the MAIN ADVERTISING CONTENT.
+This artwork will be printed as a very wide advertising banner.
 
-Keep the main advertising content as ONE SINGLE composition.
+The final composition must look like ONE continuous design.
 
-DO NOT duplicate the main content.
+Do NOT:
+- duplicate people
+- duplicate products
+- duplicate logos
+- duplicate text
+- duplicate the main subject
+- create three panels
+- create a triptych
+- mirror the design
+- repeat the same design
+- create a central frame
+- create a mockup
+- create a billboard mockup
+- create a wall
+- create empty white panels
 
-DO NOT create a second copy of:
-- people
-- products
-- logos
-- signs
-- typography
-- objects
-- characters
-- vehicles
-- furniture
-- important foreground elements
+The important advertising subject must remain visually coherent.
 
-DO NOT divide the composition into three repeated sections.
+Any additional visual space should be natural continuation
+of the original environment.
 
-DO NOT mirror the image.
-
-DO NOT tile the image.
-
-DO NOT repeat the same scene.
-
-DO NOT stretch the original artwork.
-
-Instead, imagine that the original design exists in a much larger physical advertising environment.
-
-Extend the surrounding BACKGROUND naturally so that the final artwork can fit the extremely wide target format.
-
-The extension should contain only compatible environmental elements such as:
-- background color
+Extend:
+- background
+- lighting
 - gradients
-- light
-- shadows
-- texture
-- abstract shapes
-- architectural environment
+- scenery
+- architecture
 - decorative elements
-- atmospheric depth
-- subtle patterns
+- atmosphere
+- textures
 
-The original main advertising content must remain visually dominant and appear only ONCE.
+Do not invent another copy of the main subject.
 
-The extended background must visually belong to the same original design.
+The result must feel like one professionally art-directed
+large-format advertising artwork.
 
-The transition between the original artwork and the expanded background must be natural and seamless.
+Do not stretch people.
 
-Do NOT create white empty areas.
+Do not stretch products.
 
-Do NOT create artificial borders.
+Do not distort logos.
 
-Do NOT add new advertising text.
+Do not distort important typography.
 
-Do NOT invent new slogans.
+Keep the main advertising message readable.
 
-Do NOT add watermarks.
-
-This is for professional large-format printing.
-
-The final result should look like ONE intentionally designed advertising banner, not three images joined together.
+Generate flat advertising artwork only.
 `;
-}
-
-async function createExpandedBackground({
-  sourceBuffer,
-  targetWidth,
-  targetHeight,
-  designType,
-  style,
-}) {
-  const imageFile = await toFile(
-    sourceBuffer,
-    "original-design.png",
-    {
-      type: "image/png",
-    }
-  );
-
-  const prompt = buildPrompt({
-    targetWidth,
-    targetHeight,
-    designType,
-    style,
-  });
-
-  const result = await openai.images.edit({
-    model: "gpt-image-2",
-    image: imageFile,
-    prompt,
-    size: "1536x1024",
-    quality: "high",
-  });
-
-  const b64 = result?.data?.[0]?.b64_json;
-
-  if (!b64) {
-    throw new Error("AI không trả về ảnh mở rộng.");
-  }
-
-  return Buffer.from(b64, "base64");
 }
 
 export default async function handler(req, res) {
@@ -169,285 +132,359 @@ export default async function handler(req, res) {
 
     const body = req.body || {};
 
-    const image = body.image;
+    const sourceImage = body.image;
 
-    const targetWidth = Number(
+    const width = Number(
       body.targetWidth || body.width
     );
 
-    const targetHeight = Number(
+    const height = Number(
       body.targetHeight || body.height
     );
 
-    const designType = body.designType || "Advertising";
-    const style = body.style || "Professional";
+    const unit = body.unit || "cm";
 
-    if (!image) {
+    const designType =
+      body.designType || "Banner";
+
+    const style =
+      body.style || "Hiện đại";
+
+    const content =
+      body.content ||
+      body.prompt ||
+      body.editPrompt ||
+      "Thiết kế quảng cáo chuyên nghiệp.";
+
+    if (!sourceImage) {
       return json(res, 400, {
-        error: "Thiếu ảnh thiết kế.",
+        error: "Không nhận được ảnh cần xử lý.",
       });
     }
 
     if (
-      !Number.isFinite(targetWidth) ||
-      !Number.isFinite(targetHeight) ||
-      targetWidth <= 0 ||
-      targetHeight <= 0
+      !Number.isFinite(width) ||
+      !Number.isFinite(height) ||
+      width <= 0 ||
+      height <= 0
     ) {
       return json(res, 400, {
-        error: "Kích thước thiết kế không hợp lệ.",
+        error:
+          "Kích thước thiết kế không hợp lệ.",
       });
     }
+
+    /*
+     * --------------------------------------------------
+     * 1. Đọc ảnh gốc
+     * --------------------------------------------------
+     */
+
+    let base64Image = sourceImage;
+
+    if (base64Image.includes(",")) {
+      base64Image =
+        base64Image.split(",")[1];
+    }
+
+    const originalBuffer =
+      Buffer.from(base64Image, "base64");
+
+    const originalMeta =
+      await sharp(originalBuffer).metadata();
+
+    const originalWidth =
+      originalMeta.width || 1536;
+
+    const originalHeight =
+      originalMeta.height || 1024;
+
+    /*
+     * --------------------------------------------------
+     * 2. Tính tỷ lệ đích
+     * --------------------------------------------------
+     */
+
+    const target =
+      getTargetPixelSize(width, height);
 
     const targetRatio =
-      targetWidth / targetHeight;
+      target.width / target.height;
+
+    console.log(
+      "AI DESIGN PRINT ASPECT PROCESS:",
+      {
+        physicalWidth: width,
+        physicalHeight: height,
+        unit,
+        originalWidth,
+        originalHeight,
+        targetWidth: target.width,
+        targetHeight: target.height,
+        targetRatio,
+      }
+    );
 
     /*
-     * Chuyển Data URL thành Buffer.
+     * --------------------------------------------------
+     * 3. Với tỷ lệ bình thường:
+     *    chỉ crop nhẹ nếu cần.
+     * --------------------------------------------------
      */
-    const base64 = image.includes(",")
-      ? image.split(",")[1]
-      : image;
 
-    const sourceBuffer =
-      Buffer.from(base64, "base64");
-
-    const sourceInfo =
-      await sharp(sourceBuffer).metadata();
-
-    const sourceWidth = sourceInfo.width;
-    const sourceHeight = sourceInfo.height;
-
-    if (!sourceWidth || !sourceHeight) {
-      throw new Error(
-        "Không đọc được kích thước ảnh nguồn."
-      );
-    }
+    const originalRatio =
+      originalWidth / originalHeight;
 
     /*
-     * ---------------------------------------------------------
-     * TRƯỜNG HỢP KHÔNG CỰC RỘNG
-     * ---------------------------------------------------------
+     * Nếu ảnh đã gần đúng tỷ lệ,
+     * không cần AI chỉnh sửa.
      */
     if (
-      !isExtremeRatio(
-        targetWidth,
-        targetHeight
-      )
+      Math.abs(
+        originalRatio - targetRatio
+      ) < 0.08
     ) {
-      const finalWidth = 2400;
-
-      const finalHeight = Math.max(
-        1,
-        Math.round(
-          finalWidth / targetRatio
-        )
-      );
-
-      const finalBuffer = await sharp(
-        sourceBuffer
-      )
-        .resize({
-          width: finalWidth,
-          height: finalHeight,
-          fit: "contain",
-          background: {
-            r: 255,
-            g: 255,
-            b: 255,
-            alpha: 1,
-          },
-        })
-        .png()
-        .toBuffer();
+      const output =
+        await sharp(originalBuffer)
+          .resize(
+            target.width,
+            target.height,
+            {
+              fit: "cover",
+              position: "centre",
+            }
+          )
+          .png()
+          .toBuffer();
 
       return json(res, 200, {
         image:
           "data:image/png;base64," +
-          finalBuffer.toString("base64"),
+          output.toString("base64"),
 
-        targetWidth,
-        targetHeight,
+        width,
+        height,
+        unit,
+
         targetRatio,
 
-        sourceWidth,
-        sourceHeight,
+        outputWidth: target.width,
+        outputHeight: target.height,
 
-        finalWidthPx: finalWidth,
-        finalHeightPx: finalHeight,
+        method: "DIRECT_ASPECT",
 
-        processed: false,
-        method: "normal-ratio",
+        promptVersion:
+          "AI-DESIGN-PRINT-ASPECT-V1",
       });
     }
 
     /*
-     * ---------------------------------------------------------
-     * TRƯỜNG HỢP SIÊU RỘNG / SIÊU CAO
-     * ---------------------------------------------------------
+     * --------------------------------------------------
+     * 4. Tạo artwork chuẩn bị cho việc mở rộng.
      *
-     * Không còn:
+     * Không resize méo ảnh.
      *
-     * LEFT + CENTER + RIGHT
-     *
-     * nữa.
-     *
-     * AI được yêu cầu tạo một bối cảnh mở rộng
-     * duy nhất.
+     * Ảnh gốc được thu nhỏ theo chiều cao mục tiêu
+     * để giữ nguyên tỷ lệ.
+     * --------------------------------------------------
      */
 
-    const expandedBuffer =
-      await createExpandedBackground({
-        sourceBuffer,
-        targetWidth,
-        targetHeight,
-        designType,
-        style,
-      });
-
-    /*
-     * Kích thước làm việc.
-     *
-     * 400 × 70
-     *
-     * sẽ trở thành:
-     *
-     * 2400 × 420
-     *
-     * đúng tỷ lệ.
-     */
-    const finalWidth = 2400;
-
-    const finalHeight = Math.max(
-      1,
-      Math.round(
-        finalWidth / targetRatio
-      )
-    );
-
-    /*
-     * ---------------------------------------------------------
-     * Chuẩn hóa ảnh AI về cùng tỷ lệ mục tiêu.
-     * ---------------------------------------------------------
-     */
-    const aiCanvas = await sharp(
-      expandedBuffer
-    )
-      .resize({
-        width: finalWidth,
-        height: finalHeight,
-        fit: "cover",
-        position: "centre",
-      })
-      .png()
-      .toBuffer();
-
-    /*
-     * ---------------------------------------------------------
-     * Chuẩn hóa artwork gốc.
-     *
-     * Giữ nguyên tỷ lệ.
-     * KHÔNG kéo méo.
-     */
-    const sourceMaxWidth =
-      Math.round(finalWidth * 0.42);
-
-    const sourcePrepared =
-      await sharp(sourceBuffer)
+    const fitted =
+      await sharp(originalBuffer)
         .resize({
-          width: sourceMaxWidth,
-          height: finalHeight,
-          fit: "inside",
+          height: target.height,
+          withoutEnlargement: false,
         })
         .png()
         .toBuffer();
 
-    const preparedInfo =
-      await sharp(sourcePrepared).metadata();
+    const fittedMeta =
+      await sharp(fitted).metadata();
 
-    const contentWidth =
-      preparedInfo.width || sourceMaxWidth;
-
-    const contentHeight =
-      preparedInfo.height || finalHeight;
+    const fittedWidth =
+      fittedMeta.width || target.width;
 
     /*
-     * ---------------------------------------------------------
-     * Tạo vùng trung tâm mềm.
-     *
-     * Artwork chính chỉ xuất hiện MỘT LẦN.
+     * Nếu ảnh sau khi thu nhỏ đã rộng hơn
+     * vùng đích thì crop trung tâm.
      */
-    const centerX = Math.round(
-      (finalWidth - contentWidth) / 2
-    );
+    if (fittedWidth >= target.width) {
+      const output =
+        await sharp(fitted)
+          .resize({
+            width: target.width,
+            height: target.height,
+            fit: "cover",
+            position: "centre",
+          })
+          .png()
+          .toBuffer();
 
-    const centerY = Math.round(
-      (finalHeight - contentHeight) / 2
-    );
+      return json(res, 200, {
+        image:
+          "data:image/png;base64," +
+          output.toString("base64"),
+
+        width,
+        height,
+        unit,
+
+        targetRatio,
+
+        outputWidth: target.width,
+        outputHeight: target.height,
+
+        method: "CENTER_CROP",
+
+        promptVersion:
+          "AI-DESIGN-PRINT-ASPECT-V1",
+      });
+    }
 
     /*
-     * Ghép artwork chính lên BỐI CẢNH AI DUY NHẤT.
+     * --------------------------------------------------
+     * 5. Tạo nền mở rộng.
      *
-     * AI background phủ toàn bộ 400 × 70.
+     * Quan trọng:
+     * Không ghép 3 bản sao của artwork.
      *
-     * Artwork chính nằm giữa.
+     * Chúng ta chỉ tạo background mở rộng,
+     * sau đó đặt artwork gốc ở giữa.
+     * --------------------------------------------------
      */
-    const finalBuffer =
-      await sharp(aiCanvas)
+
+    const extensionPrompt =
+      getExtensionPrompt({
+        width,
+        height,
+        unit,
+        designType,
+        style,
+        content,
+      });
+
+    /*
+     * Tạo canvas trung gian theo tỷ lệ landscape
+     * mà API hỗ trợ.
+     *
+     * Ảnh này dùng để tạo nền mở rộng tự nhiên.
+     */
+
+    const backgroundResponse =
+      await openai.images.generate({
+        model: "gpt-image-2",
+        prompt: extensionPrompt,
+        size: "1536x1024",
+        quality: "high",
+      });
+
+    const backgroundBase64 =
+      backgroundResponse?.data?.[0]?.b64_json;
+
+    if (!backgroundBase64) {
+      throw new Error(
+        "AI không trả về nền mở rộng."
+      );
+    }
+
+    const backgroundBuffer =
+      Buffer.from(
+        backgroundBase64,
+        "base64"
+      );
+
+    /*
+     * --------------------------------------------------
+     * 6. Chuẩn hóa background về kích thước đích.
+     *
+     * Không kéo méo artwork gốc.
+     * --------------------------------------------------
+     */
+
+    const background =
+      await sharp(backgroundBuffer)
+        .resize(
+          target.width,
+          target.height,
+          {
+            fit: "cover",
+            position: "centre",
+          }
+        )
+        .png()
+        .toBuffer();
+
+    /*
+     * --------------------------------------------------
+     * 7. Đặt artwork chính ở giữa.
+     *
+     * Chỉ một bản duy nhất.
+     * --------------------------------------------------
+     */
+
+    const left =
+      Math.max(
+        0,
+        Math.round(
+          (target.width - fittedWidth) / 2
+        )
+      );
+
+    const finalImage =
+      await sharp(background)
         .composite([
           {
-            input: sourcePrepared,
-            left: centerX,
-            top: centerY,
+            input: fitted,
+            left,
+            top: 0,
           },
         ])
         .png()
         .toBuffer();
 
     /*
-     * Kiểm tra lại kích thước cuối.
+     * --------------------------------------------------
+     * 8. Kiểm tra kích thước cuối cùng.
+     * --------------------------------------------------
      */
-    const finalInfo =
-      await sharp(finalBuffer).metadata();
+
+    const finalMeta =
+      await sharp(finalImage).metadata();
 
     return json(res, 200, {
       image:
         "data:image/png;base64," +
-        finalBuffer.toString("base64"),
+        finalImage.toString("base64"),
 
-      targetWidth,
-      targetHeight,
+      width,
+      height,
+      unit,
+
       targetRatio,
 
-      sourceWidth,
-      sourceHeight,
+      outputWidth:
+        finalMeta.width,
 
-      finalWidthPx:
-        finalInfo.width || finalWidth,
-
-      finalHeightPx:
-        finalInfo.height || finalHeight,
-
-      processed: true,
+      outputHeight:
+        finalMeta.height,
 
       method:
-        "single-ai-expanded-background",
+        "AI_BACKGROUND_EXTENSION",
 
-      contentDuplicated: false,
-
-      message:
-        "Đã tạo nền mở rộng AI duy nhất và giữ nội dung chính ở trung tâm.",
+      promptVersion:
+        "AI-DESIGN-PRINT-ASPECT-V1",
     });
+
   } catch (error) {
     console.error(
-      "AI DESIGN PRINT EDIT ERROR:",
+      "ASPECT PROCESS ERROR:",
       error
     );
 
     return json(res, 500, {
       error:
         error?.message ||
-        "Không thể xử lý thiết kế.",
+        "Không thể xử lý tỷ lệ ảnh.",
     });
   }
 }
