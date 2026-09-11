@@ -17,7 +17,6 @@ function App() {
 
   const [uploadedImage, setUploadedImage] = useState(null);
 
-  const [generated, setGenerated] = useState(false);
   const [generatedImage, setGeneratedImage] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
@@ -47,7 +46,6 @@ function App() {
 
     setUploadedImage(URL.createObjectURL(file));
     setGeneratedImage(null);
-    setGenerated(false);
     setError("");
   };
 
@@ -65,7 +63,6 @@ function App() {
     const aspectRatio = w / h;
 
     setGenerating(true);
-    setGenerated(false);
     setGeneratedImage(null);
     setError("");
 
@@ -89,14 +86,17 @@ function App() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error || "Không thể tạo thiết kế.");
+        throw new Error(
+          data.error || "Không thể tạo thiết kế."
+        );
       }
 
       setGeneratedImage(data.image);
-      setGenerated(true);
     } catch (err) {
       console.error(err);
-      setError(err.message || "Có lỗi xảy ra.");
+      setError(
+        err.message || "Có lỗi xảy ra khi tạo thiết kế."
+      );
     } finally {
       setGenerating(false);
     }
@@ -141,11 +141,12 @@ function App() {
       }
 
       setGeneratedImage(data.image);
-      setGenerated(true);
       setEditPrompt("");
     } catch (err) {
       console.error(err);
-      setError(err.message || "Có lỗi xảy ra.");
+      setError(
+        err.message || "Có lỗi xảy ra khi chỉnh sửa."
+      );
     } finally {
       setGenerating(false);
     }
@@ -235,7 +236,7 @@ function App() {
 
       </header>
 
-      {/* MAIN APPLICATION */}
+      {/* MAIN */}
 
       <div className="studio">
 
@@ -324,7 +325,7 @@ function App() {
 
         </aside>
 
-        {/* CENTER CANVAS */}
+        {/* CANVAS */}
 
         <main className="canvas-area">
 
@@ -402,6 +403,8 @@ function App() {
               }}
             >
 
+              {/* GENERATING */}
+
               {generating ? (
 
                 <div className="empty-canvas">
@@ -443,17 +446,51 @@ function App() {
 
               ) : generatedImage ? (
 
-                <div className="generated-result">
+                <div
+                  className="generated-result"
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    overflow: "hidden",
+                  }}
+                >
 
-                  <div className="generated-image-wrap">
+                  {/* ẢNH LUÔN HIỂN THỊ TOÀN BỘ */}
+
+                  <div
+                    className="generated-image-wrap"
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      overflow: "hidden",
+                    }}
+                  >
 
                     <img
                       src={generatedImage}
                       className="canvas-image"
                       alt="AI generated design"
+                      style={{
+                        display: "block",
+                        width: "100%",
+                        height: "100%",
+                        maxWidth: "100%",
+                        maxHeight: "100%",
+                        objectFit: "contain",
+                        objectPosition: "center",
+                      }}
                     />
 
                   </div>
+
+                  {/* ACTIONS */}
 
                   <div className="generated-actions">
 
@@ -506,6 +543,15 @@ function App() {
                   src={uploadedImage}
                   className="canvas-image"
                   alt="Uploaded design"
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    height: "100%",
+                    maxWidth: "100%",
+                    maxHeight: "100%",
+                    objectFit: "contain",
+                    objectPosition: "center",
+                  }}
                 />
 
               ) : (
@@ -541,41 +587,29 @@ function App() {
           <div className="canvas-bottom">
 
             <div>
-
-              <span>
-                DOCUMENT
-              </span>
+              <span>DOCUMENT</span>
 
               <strong>
                 {width || "--"} ×{" "}
                 {height || "--"}{" "}
                 {unit}
               </strong>
-
             </div>
 
             <div>
-
-              <span>
-                TYPE
-              </span>
+              <span>TYPE</span>
 
               <strong>
                 {designType}
               </strong>
-
             </div>
 
             <div>
-
-              <span>
-                STATUS
-              </span>
+              <span>STATUS</span>
 
               <strong className="ready">
                 READY
               </strong>
-
             </div>
 
           </div>
@@ -669,6 +703,7 @@ function App() {
                 }
                 disabled={!toolOn}
               >
+
                 <option value="mm">
                   mm
                 </option>
@@ -680,6 +715,7 @@ function App() {
                 <option value="m">
                   m
                 </option>
+
               </select>
 
             </div>
@@ -755,7 +791,7 @@ function App() {
 
           </section>
 
-          {/* AI BUTTON */}
+          {/* GENERATE */}
 
           <button
             className="generate-button"
