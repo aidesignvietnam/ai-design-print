@@ -1,300 +1,359 @@
 import OpenAI from "openai";
-import sharp from "sharp";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-function getLayoutType(width, height) {
-  const ratio = width / height;
-
-  if (ratio >= 4) return "ULTRA_WIDE";
-  if (ratio >= 2) return "WIDE";
-  if (ratio <= 0.5) return "ULTRA_TALL";
-  if (ratio <= 0.87) return "PORTRAIT";
-  if (ratio >= 1.15) return "LANDSCAPE";
-
-  return "SQUARE";
+function json(res, status, data) {
+  return res.status(status).json(data);
 }
 
-function getOutputSize(layoutType) {
-  switch (layoutType) {
-    case "ULTRA_TALL":
-    case "PORTRAIT":
-      return "1024x1536";
-
-    case "SQUARE":
-      return "1024x1024";
-
-    case "ULTRA_WIDE":
-    case "WIDE":
-    case "LANDSCAPE":
-    default:
-      return "1536x1024";
-  }
+function getRatio(width, height) {
+  return Number(width) / Number(height);
 }
 
-async function getImageInfo(base64Image) {
-  const buffer = Buffer.from(base64Image, "base64");
+function getLayout(width, height) {
+  const ratio = getRatio(width, height);
 
-  const metadata = await sharp(buffer).metadata();
-
-  return {
-    width: metadata.width || 0,
-    height: metadata.height || 0,
-    ratio:
-      metadata.width && metadata.height
-        ? metadata.width / metadata.height
-        : 0,
-  };
-}
-
-export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({
-      error: "Method not allowed",
-    });
+  if (ratio >= 4.5) {
+    return "ULTRA_WIDE";
   }
 
-  try {
-    const {
-      designType = "Backdrop",
-      width,
-      height,
-      unit = "cm",
-      prompt = "",
-      style = "Hiện đại",
-    } = req.body || {};
+  if (ratio >= 2.5) {
+    return "WIDE";
+  }
 
-    const targetWidth = Number(width);
-    const targetHeight = Number(height);
+  if (ratio <= 0.45) {
+    return "ULTRA_TALL";
+  }
 
-    if (
-      !Number.isFinite(targetWidth) ||
-      !Number.isFinite(targetHeight) ||
-      targetWidth <= 0 ||
-      targetHeight <= 0
-    ) {
-      return res.status(400).json({
-        error: "Kích thước thiết kế không hợp lệ.",
-      });
-    }
+  if (ratio <= 0.7) {
+    return "TALL";
+  }
 
-    const targetRatio = targetWidth / targetHeight;
+  return "STANDARD";
+}
 
-    const layoutType = getLayoutType(
-      targetWidth,
-      targetHeight
-    );
+function getOutputSize(layout) {
+  /*
+   * OpenAI image API hiện dùng các kích thước chuẩn.
+   * Với banner siêu ngang, dùng ảnh landscape
+   * làm artwork chất lượng cao ban đầu.
+   */
+  if (layout === "ULTRA_TALL") {
+    return "1024x1536";
+  }
 
-    const outputSize = getOutputSize(layoutType);
+  if (layout === "TALL") {
+    return "1024x1536";
+  }
 
-    /*
-     * SPECIAL FORMAT:
-     * ULTRA-WIDE LARGE-FORMAT ADVERTISING BANNER
-     *
-     * Với những thiết kế như 400 x 70 cm,
-     * AI sẽ tạo artwork trung gian trước.
-     *
-     * Sau đó /api/edit sẽ mở rộng artwork
-     * thành đúng tỷ lệ in thực tế.
-     */
+  return "1536x1024";
+}
 
-    let formatInstruction = "";
+function buildPrompt({
+  width,
+  height,
+  unit,
+  designType,
+  style,
+  content,
+  layout,
+}) {
+  const ratio = getRatio(width, height);
 
-    if (layoutType === "ULTRA_WIDE") {
-      formatInstruction = `
-SPECIAL FORMAT: ULTRA-WIDE LARGE-FORMAT ADVERTISING BANNER
+  const sizeText = `${width} ${unit} × ${height} ${unit}`;
 
-The requested document is extremely wide.
+  let layoutInstruction = "";
 
-TARGET DOCUMENT:
-${targetWidth} × ${targetHeight} ${unit}
+  if (layout === "ULTRA_WIDE") {
+    layoutInstruction = `
+SPECIAL LARGE-FORMAT COMPOSITION:
 
-TARGET RATIO:
-${targetRatio.toFixed(4)} : 1
+The requested physical format is:
+${sizeText}
 
-Create the main artwork as a professional advertising composition
-with the important visual elements concentrated in a safe central area.
+Aspect ratio:
+${ratio.toFixed(3)} : 1
 
-IMPORTANT:
+This is an EXTREMELY WIDE advertising banner.
 
-- Do not place critical text near the extreme left or right edges.
-- Do not stretch people or products.
-- Do not distort logos.
-- Do not create extremely small typography.
-- Leave visual background areas that can naturally continue outward.
-- The background must be expandable later by an AI outpainting process.
-- Keep the composition visually balanced.
-- Do not add random text.
-- Do not add watermarks.
+Design it as ONE continuous panoramic composition.
 
-The artwork is an intermediate design that will later be expanded
-to the final ultra-wide print ratio.
+CRITICAL COMPOSITION RULES:
+
+- The main advertising subject must appear ONLY ONCE.
+- Never duplicate the main subject.
+- Never create three repeated panels.
+- Never mirror the main subject.
+- Never tile the composition.
+- Never repeat people.
+- Never repeat products.
+- Never repeat logos.
+- Never repeat the same typography.
+- Never place a duplicate version of the design on the left or right.
+
+The main content should be large, clearly visible and visually dominant.
+
+Place the important advertising information inside a strong central safe area.
+
+Use the left and right areas primarily for:
+- background
+- environmental space
+- gradients
+- decorative elements
+- lighting
+- textures
+- atmospheric depth
+- supporting visual elements
+
+The left and right sides must visually connect to the central composition.
+
+The entire banner must feel like ONE professionally art-directed large-format advertising design.
+
+Do not make it look like three images joined together.
+
+Do not leave empty white areas.
+
+Do not stretch people or products.
+
+Do not distort important objects.
+
+The final artwork should be suitable as the master artwork for a very wide printed banner.
 `;
-    } else if (layoutType === "WIDE") {
-      formatInstruction = `
-WIDE ADVERTISING FORMAT
+  } else if (layout === "WIDE") {
+    layoutInstruction = `
+WIDE ADVERTISING FORMAT:
 
-TARGET DOCUMENT:
-${targetWidth} × ${targetHeight} ${unit}
+Create one continuous horizontal composition.
 
-TARGET RATIO:
-${targetRatio.toFixed(4)} : 1
+Keep the main subject visible only once.
 
-Create a balanced wide advertising composition.
+Use the surrounding horizontal space for background,
+decorative elements and visual breathing room.
 
-Keep important typography, logos, people and products away from
-the extreme edges so the composition remains safe for printing.
+Do not duplicate the main subject or typography.
 `;
-    } else if (layoutType === "ULTRA_TALL") {
-      formatInstruction = `
-ULTRA-TALL PRINT FORMAT
+  } else if (layout === "ULTRA_TALL") {
+    layoutInstruction = `
+SPECIAL LARGE-FORMAT VERTICAL COMPOSITION:
 
-TARGET DOCUMENT:
-${targetWidth} × ${targetHeight} ${unit}
+The requested physical format is:
+${sizeText}
 
-TARGET RATIO:
-${targetRatio.toFixed(4)} : 1
+Create ONE continuous vertical advertising composition.
 
-Create a vertical advertising composition with a strong central hierarchy.
+The main subject must appear only once.
+
+Do not duplicate people, products, logos or typography.
+
+Use the upper and lower areas for compatible background,
+lighting, atmosphere and decorative elements.
+
+Do not create repeated panels.
 `;
-    } else {
-      formatInstruction = `
-STANDARD PRINT FORMAT
+  } else if (layout === "TALL") {
+    layoutInstruction = `
+VERTICAL ADVERTISING FORMAT:
 
-TARGET DOCUMENT:
-${targetWidth} × ${targetHeight} ${unit}
+Create one continuous vertical composition.
 
-TARGET RATIO:
-${targetRatio.toFixed(4)} : 1
+Keep the main subject visible only once.
 
-Create a professional advertising composition suitable for large-format
-printing.
+Do not duplicate the main subject or typography.
 `;
-    }
+  } else {
+    layoutInstruction = `
+STANDARD ADVERTISING FORMAT:
 
-    const designPrompt = `
-You are a professional advertising graphic designer.
+Create one balanced professional composition.
 
-Create a high-quality commercial advertising artwork.
+Keep the main subject clear and visually dominant.
+`;
+  }
+
+  return `
+You are an expert professional advertising art director
+specialized in large-format printing.
+
+CREATE A PROFESSIONAL ADVERTISING DESIGN.
 
 DESIGN TYPE:
-${designType}
+${designType || "Backdrop"}
 
-SIZE:
-${targetWidth} × ${targetHeight} ${unit}
+PHYSICAL SIZE REQUESTED BY USER:
+${sizeText}
+
+ASPECT RATIO:
+${ratio.toFixed(3)} : 1
 
 STYLE:
-${style}
+${style || "Modern"}
 
-USER BRIEF:
-${prompt}
+USER CONTENT:
+${content || "Create a professional advertising composition."}
 
-${formatInstruction}
+${layoutInstruction}
 
 GENERAL DESIGN REQUIREMENTS:
 
-- Professional advertising design
-- Strong visual hierarchy
-- Clean composition
-- High visual impact
-- Suitable for commercial printing
-- Professional typography
-- Good spacing
-- Clear focal point
-- Balanced colors
-- No unnecessary objects
-- No random text
-- No watermark
-- No distorted people
-- No distorted products
-- No distorted logos
+- Professional commercial advertising quality.
+- Strong visual hierarchy.
+- Excellent typography hierarchy.
+- Clear focal point.
+- Good negative space.
+- Balanced composition.
+- High visual impact.
+- Suitable for large-format printing.
+- Use the requested style consistently.
+- Do not create unnecessary objects.
+- Do not create duplicate subjects.
+- Do not add random text.
+- Do not add watermarks.
+- Do not create mockup frames.
+- Do not show the design hanging on a wall.
+- Do not show a computer screen.
+- Generate the actual flat advertising artwork.
 
-The final artwork must look professionally designed rather than like
-a generic AI image.
+TEXT REQUIREMENT:
+
+The user's requested wording is the content of the advertisement.
+
+Do not invent additional slogans or unrelated wording.
+
+Keep the main text readable and visually prominent.
 
 IMPORTANT:
-This is the first stage of a two-stage design pipeline.
 
-For extreme aspect ratios, create a strong central composition with
-background elements that can be naturally expanded later.
+The physical dimensions entered by the user are authoritative.
 
-Do NOT attempt to squeeze the entire ultra-wide document into a normal
-image ratio.
+Do NOT redesign the requested format into a normal poster.
+
+If the requested format is extremely wide,
+the composition must visibly behave like a panoramic advertising banner.
+
+The result should be a single intentional advertising artwork,
+not a repeated or tiled image.
 `;
+}
 
-    console.log("GENERATE REQUEST", {
-      designType,
-      targetWidth,
-      targetHeight,
+export default async function handler(req, res) {
+  try {
+    if (req.method !== "POST") {
+      return json(res, 405, {
+        error: "Method not allowed",
+      });
+    }
+
+    const body = req.body || {};
+
+    const width = Number(body.width);
+    const height = Number(body.height);
+
+    const unit = body.unit || "cm";
+
+    const designType =
+      body.designType || "Backdrop";
+
+    const style =
+      body.style || "Hiện đại";
+
+    const content =
+      body.content ||
+      body.prompt ||
+      "Thiết kế quảng cáo chuyên nghiệp.";
+
+    if (
+      !Number.isFinite(width) ||
+      !Number.isFinite(height) ||
+      width <= 0 ||
+      height <= 0
+    ) {
+      return json(res, 400, {
+        error:
+          "Chiều rộng và chiều cao phải lớn hơn 0.",
+      });
+    }
+
+    const ratio = getRatio(width, height);
+
+    const layout = getLayout(width, height);
+
+    const outputSize = getOutputSize(layout);
+
+    const designPrompt = buildPrompt({
+      width,
+      height,
       unit,
-      targetRatio,
-      layoutType,
+      designType,
+      style,
+      content,
+      layout,
+    });
+
+    console.log("AI DESIGN PRINT REQUEST:", {
+      width,
+      height,
+      unit,
+      ratio,
+      layout,
       outputSize,
+      designType,
+      style,
     });
 
-    const response = await openai.images.generate({
-      model: "gpt-image-2",
-      prompt: designPrompt,
-      size: outputSize,
-      quality: "high",
-    });
+    const response =
+      await openai.images.generate({
+        model: "gpt-image-2",
+        prompt: designPrompt,
+        size: outputSize,
+        quality: "high",
+      });
 
-    const resultBase64 =
+    const image =
       response?.data?.[0]?.b64_json;
 
-    if (!resultBase64) {
+    if (!image) {
       throw new Error(
-        "AI không trả về dữ liệu hình ảnh."
+        "OpenAI không trả về ảnh thiết kế."
       );
     }
 
-    const imageInfo =
-      await getImageInfo(resultBase64);
+    return json(res, 200, {
+      image:
+        "data:image/png;base64," +
+        image,
 
-    const requiresAspectProcessing =
-      layoutType === "ULTRA_WIDE" ||
-      layoutType === "WIDE" ||
-      layoutType === "ULTRA_TALL";
-
-    const ratioDifference =
-      targetRatio > 0 && imageInfo.ratio > 0
-        ? Math.abs(imageInfo.ratio - targetRatio) /
-          targetRatio
-        : 0;
-
-    return res.status(200).json({
-      image: `data:image/png;base64,${resultBase64}`,
-
-      width: targetWidth,
-      height: targetHeight,
+      width,
+      height,
       unit,
 
-      aspectRatio: targetRatio,
+      targetRatio: ratio,
 
-      layoutType,
-
-      sourceWidth: imageInfo.width,
-      sourceHeight: imageInfo.height,
-      sourceAspectRatio: imageInfo.ratio,
+      layout,
 
       outputSize,
 
-      requiresAspectProcessing,
+      designType,
+      style,
 
-      ratioDifference,
+      requiresAspectProcessing:
+        layout === "ULTRA_WIDE" ||
+        layout === "ULTRA_TALL",
 
-      pipeline:
-        "GENERATE_INTERMEDIATE_ARTWORK_THEN_AI_ASPECT_EXPANSION",
+      promptVersion:
+        "AI-DESIGN-PRINT-PANORAMIC-V2",
     });
   } catch (error) {
-    console.error("GENERATE API ERROR:", error);
+    console.error(
+      "GENERATE ERROR:",
+      error
+    );
 
-    return res.status(500).json({
+    return json(res, 500, {
       error:
         error?.message ||
-        "Không thể tạo thiết kế.",
+        "Không thể tạo thiết kế AI.",
     });
   }
 }
