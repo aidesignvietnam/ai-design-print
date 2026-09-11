@@ -6,450 +6,556 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-function getLayoutType(width, height) {
-  const ratio = width / height;
-
-  if (ratio >= 4) return "ULTRA_WIDE";
-  if (ratio >= 2) return "WIDE";
-  if (ratio <= 0.5) return "ULTRA_TALL";
-  if (ratio <= 0.87) return "PORTRAIT";
-  if (ratio >= 1.15) return "LANDSCAPE";
-
-  return "SQUARE";
+function sendJSON(res, status, data) {
+  res.status(status).json(data);
 }
 
-function dataUrlToBuffer(dataUrl) {
-  if (!dataUrl || typeof dataUrl !== "string") {
-    throw new Error("Không có dữ liệu ảnh.");
-  }
-
-  const match = dataUrl.match(
-    /^data:image\/([a-zA-Z0-9.+-]+);base64,(.+)$/
-  );
-
-  if (!match) {
-    throw new Error("Định dạng ảnh đầu vào không hợp lệ.");
-  }
-
-  return Buffer.from(match[2], "base64");
+function getRatio(width, height) {
+  return Number(width) / Number(height);
 }
 
-function bufferToDataUrl(buffer, mime = "image/png") {
-  return `data:${mime};base64,${buffer.toString("base64")}`;
+function isUltraWide(width, height) {
+  const ratio = getRatio(width, height);
+  return ratio >= 3.0;
 }
 
-async function getImageInfo(buffer) {
-  const meta = await sharp(buffer).metadata();
-
-  if (!meta.width || !meta.height) {
-    throw new Error("Không đọc được kích thước ảnh.");
-  }
-
-  return {
-    width: meta.width,
-    height: meta.height,
-    ratio: meta.width / meta.height,
-  };
+function isUltraTall(width, height) {
+  const ratio = getRatio(width, height);
+  return ratio <= 0.34;
 }
 
-async function createExpansionCanvas(
-  sourceBuffer,
-  targetWidth,
-  targetHeight
-) {
-  const sourceInfo = await getImageInfo(sourceBuffer);
+function buildExpansionPrompt({
+  direction,
+  width,
+  height,
+  designType,
+  style,
+}) {
+  const side = direction === "left" ? "LEFT" : "RIGHT";
 
-  const targetRatio = targetWidth / targetHeight;
+  return `
+You are expanding an existing professional advertising design.
 
-  const canvasWidth = 1536;
-  const canvasHeight = Math.max(
-    256,
-    Math.round(canvasWidth / targetRatio)
-  );
+TASK:
+Create ONLY a natural visual continuation of the existing design toward the ${side} side.
 
-  let resizedWidth;
-  let resizedHeight;
+IMPORTANT:
+- This is a large-format advertising design.
+- Target final physical size: ${width} × ${height} cm.
+- Design type: ${designType || "advertising banner"}.
+- Style: ${style || "professional"}.
+- Continue the same background, lighting, colors, atmosphere, textures,
+  architecture, decoration and visual environment from the supplied image.
+- The new area must look like it was originally designed as part of the same artwork.
+- Do NOT create a white area.
+- Do NOT create a blank empty area.
+- Do NOT add a border.
+- Do NOT stretch the existing artwork.
+- Do NOT distort people, products, objects, logos or typography.
+- Do NOT invent a second copy of the main subject.
+- Do NOT create duplicate people.
+- Do NOT add new advertising text.
+- Do NOT add random letters.
+- Do NOT add watermarks.
 
-  if (sourceInfo.ratio > targetRatio) {
-    resizedWidth = canvasWidth;
-    resizedHeight = Math.round(
-      canvasWidth / sourceInfo.ratio
-    );
-  } else {
-    resizedHeight = canvasHeight;
-    resizedWidth = Math.round(
-      canvasHeight * sourceInfo.ratio
-    );
-  }
+The existing artwork is the central reference.
+The new visual must connect naturally to its ${side} edge.
 
-  const resized = await sharp(sourceBuffer)
-    .resize(resizedWidth, resizedHeight, {
-      fit: "fill",
-    })
-    .png()
-    .toBuffer();
+The purpose is seamless large-format print expansion.
+Keep the visual density and professional advertising quality consistent
+with the supplied artwork.
 
-  const left = Math.max(
-    0,
-    Math.round((canvasWidth - resizedWidth) / 2)
-  );
-
-  const top = Math.max(
-    0,
-    Math.round((canvasHeight - resizedHeight) / 2)
-  );
-
-  const canvas = await sharp({
-    create: {
-      width: canvasWidth,
-      height: canvasHeight,
-      channels: 4,
-      background: {
-        r: 0,
-        g: 0,
-        b: 0,
-        alpha: 0,
-      },
-    },
-  })
-    .composite([
-      {
-        input: resized,
-        left,
-        top,
-      },
-    ])
-    .png()
-    .toBuffer();
-
-  return {
-    buffer: canvas,
-    width: canvasWidth,
-    height: canvasHeight,
-    sourceWidth: sourceInfo.width,
-    sourceHeight: sourceInfo.height,
-    sourceRatio: sourceInfo.ratio,
-    targetRatio,
-  };
+Generate a realistic continuation suitable for professional printing.
+`;
 }
 
-async function createFinalRatioImage(
-  aiBuffer,
-  targetWidth,
-  targetHeight
-) {
-  const aiInfo = await getImageInfo(aiBuffer);
-
-  const targetRatio = targetWidth / targetHeight;
-
-  /*
-   * Final PNG canvas.
-   *
-   * 400 × 70 cm
-   * => 2400 × 420 px
-   */
-  const finalWidth = 2400;
-
-  const finalHeight = Math.max(
-    1,
-    Math.round(finalWidth / targetRatio)
+async function generateExtension({
+  imageBuffer,
+  direction,
+  width,
+  height,
+  designType,
+  style,
+}) {
+  const imageFile = await toFile(
+    imageBuffer,
+    `reference-${direction}.png`,
+    {
+      type: "image/png",
+    }
   );
 
-  /*
-   * Giữ nguyên tỷ lệ AI.
-   * Không kéo méo nội dung.
-   */
-  let centerWidth;
-  let centerHeight;
+  const prompt = buildExpansionPrompt({
+    direction,
+    width,
+    height,
+    designType,
+    style,
+  });
 
-  if (aiInfo.ratio > targetRatio) {
-    centerWidth = finalWidth;
-    centerHeight = Math.round(
-      finalWidth / aiInfo.ratio
-    );
-  } else {
-    centerHeight = finalHeight;
-    centerWidth = Math.round(
-      finalHeight * aiInfo.ratio
+  const result = await openai.images.edit({
+    model: "gpt-image-2",
+    image: imageFile,
+    prompt,
+    size: "1536x1024",
+    quality: "high",
+  });
+
+  const imageBase64 = result?.data?.[0]?.b64_json;
+
+  if (!imageBase64) {
+    throw new Error(
+      `AI không trả về ảnh mở rộng phía ${direction}.`
     );
   }
 
-  const center = await sharp(aiBuffer)
-    .resize(centerWidth, centerHeight, {
-      fit: "fill",
-    })
-    .png()
-    .toBuffer();
-
-  /*
-   * Tạo nền mở rộng từ mép ảnh.
-   *
-   * Đây chỉ là lớp nền tạm thời.
-   * AI đã được yêu cầu mở rộng thiết kế trước đó.
-   */
-  const background = await sharp({
-    create: {
-      width: finalWidth,
-      height: finalHeight,
-      channels: 4,
-      background: {
-        r: 255,
-        g: 255,
-        b: 255,
-        alpha: 1,
-      },
-    },
-  }).png().toBuffer();
-
-  const left =
-    Math.max(0, Math.round((finalWidth - centerWidth) / 2));
-
-  const top =
-    Math.max(0, Math.round((finalHeight - centerHeight) / 2));
-
-  const finalBuffer = await sharp(background)
-    .composite([
-      {
-        input: center,
-        left,
-        top,
-      },
-    ])
-    .png()
-    .toBuffer();
-
-  const finalInfo = await getImageInfo(finalBuffer);
-
-  return {
-    buffer: finalBuffer,
-    width: finalInfo.width,
-    height: finalInfo.height,
-    ratio: finalInfo.ratio,
-  };
+  return Buffer.from(imageBase64, "base64");
 }
 
 export default async function handler(req, res) {
-  if (req.method !== "POST") {
-    return res.status(405).json({
-      error: "Method not allowed",
-    });
-  }
-
   try {
+    if (req.method !== "POST") {
+      return sendJSON(res, 405, {
+        error: "Method not allowed",
+      });
+    }
+
     const {
       image,
-      editPrompt = "",
       targetWidth,
       targetHeight,
       width,
       height,
-      designType = "Backdrop",
-      style = "Hiện đại",
+      unit,
+      designType,
+      style,
     } = req.body || {};
 
-    const finalTargetWidth = Number(
-      targetWidth || width
-    );
+    if (!image) {
+      return sendJSON(res, 400, {
+        error: "Thiếu ảnh đầu vào.",
+      });
+    }
 
-    const finalTargetHeight = Number(
-      targetHeight || height
-    );
+    const finalWidth = Number(targetWidth || width);
+    const finalHeight = Number(targetHeight || height);
 
     if (
-      !Number.isFinite(finalTargetWidth) ||
-      !Number.isFinite(finalTargetHeight) ||
-      finalTargetWidth <= 0 ||
-      finalTargetHeight <= 0
+      !Number.isFinite(finalWidth) ||
+      !Number.isFinite(finalHeight) ||
+      finalWidth <= 0 ||
+      finalHeight <= 0
     ) {
-      return res.status(400).json({
-        error: "Kích thước thiết kế không hợp lệ.",
+      return sendJSON(res, 400, {
+        error: "Kích thước không hợp lệ.",
       });
     }
 
-    if (!image) {
-      return res.status(400).json({
-        error: "Không có ảnh để chỉnh sửa.",
-      });
-    }
-
-    const sourceBuffer = dataUrlToBuffer(image);
-
-    const sourceInfo =
-      await getImageInfo(sourceBuffer);
-
-    const targetRatio =
-      finalTargetWidth / finalTargetHeight;
-
-    const layoutType = getLayoutType(
-      finalTargetWidth,
-      finalTargetHeight
-    );
-
-    const aspectPrompt = `
-You are finishing a professional advertising print design.
-
-TARGET DOCUMENT:
-${finalTargetWidth} × ${finalTargetHeight} cm
-
-TARGET ASPECT RATIO:
-${targetRatio.toFixed(4)} : 1
-
-DESIGN TYPE:
-${designType}
-
-STYLE:
-${style}
-
-TASK:
-
-Expand the existing artwork naturally to the requested ultra-wide
-or print aspect ratio.
-
-IMPORTANT RULES:
-
-- NEVER stretch or squash the original artwork.
-- NEVER distort people.
-- NEVER distort faces.
-- NEVER distort bodies.
-- NEVER distort products.
-- NEVER distort vehicles.
-- NEVER distort logos.
-- NEVER distort typography.
-- Preserve the original visual identity.
-- Keep important content in the central safe area.
-- Naturally continue the background into the additional space.
-- Continue lighting, gradients, scenery, textures and decorative elements.
-- Make the result look like one continuous professional design.
-- Do not duplicate the central image.
-- Do not mirror the image.
-- Do not create repeating patterns.
-- Do not create blurred side panels.
-- Do not create white empty strips.
-- Do not add random text.
-- Do not add watermarks.
-
-The final artwork must look intentionally designed for the requested
-large-format advertising document.
-
-${editPrompt}
-`;
+    const targetRatio = finalWidth / finalHeight;
 
     /*
-     * Chuẩn bị canvas theo đúng tỷ lệ mục tiêu.
+     * Chuyển Data URL thành Buffer.
      */
-    const expansionCanvas =
-      await createExpansionCanvas(
-        sourceBuffer,
-        finalTargetWidth,
-        finalTargetHeight
-      );
+    const base64Data = image.includes(",")
+      ? image.split(",")[1]
+      : image;
+
+    const sourceBuffer = Buffer.from(base64Data, "base64");
 
     /*
-     * QUAN TRỌNG:
+     * Lấy thông tin ảnh gốc.
+     */
+    const sourceInfo = await sharp(sourceBuffer).metadata();
+
+    const sourceWidth = sourceInfo.width;
+    const sourceHeight = sourceInfo.height;
+
+    if (!sourceWidth || !sourceHeight) {
+      throw new Error("Không đọc được kích thước ảnh nguồn.");
+    }
+
+    /*
+     * Nếu tỷ lệ không quá cực đoan,
+     * chỉ tạo bản xuất đúng tỷ lệ bằng contain.
+     */
+    if (!isUltraWide(finalWidth, finalHeight) &&
+        !isUltraTall(finalWidth, finalHeight)) {
+
+      const outputBuffer = await sharp(sourceBuffer)
+        .resize({
+          width: 2400,
+          height: Math.round(2400 / targetRatio),
+          fit: "contain",
+          background: {
+            r: 255,
+            g: 255,
+            b: 255,
+            alpha: 1,
+          },
+        })
+        .png()
+        .toBuffer();
+
+      return sendJSON(res, 200, {
+        image:
+          "data:image/png;base64," +
+          outputBuffer.toString("base64"),
+        targetWidth: finalWidth,
+        targetHeight: finalHeight,
+        targetRatio,
+        processed: false,
+        method: "safe-contain",
+      });
+    }
+
+    /*
+     * ============================================================
+     * ULTRA-WIDE / ULTRA-TALL
+     * ============================================================
      *
-     * OpenAI Images Edit yêu cầu FILE,
-     * không nhận Data URL string ở trường image.
+     * Không kéo giãn ảnh gốc.
+     *
+     * Với banner cực rộng như 400 × 70,
+     * ta tạo phần mở rộng AI riêng rồi ghép với artwork chính.
      */
-    const imageFile = await toFile(
-      expansionCanvas.buffer,
-      "ai-design-print.png",
-      {
-        type: "image/png",
-      }
-    );
 
-    console.log("EDIT REQUEST", {
-      designType,
-      targetWidth: finalTargetWidth,
-      targetHeight: finalTargetHeight,
-      targetRatio,
-      layoutType,
-      sourceWidth: sourceInfo.width,
-      sourceHeight: sourceInfo.height,
-      workingWidth: expansionCanvas.width,
-      workingHeight: expansionCanvas.height,
-    });
+    const horizontal = isUltraWide(finalWidth, finalHeight);
 
-    const response = await openai.images.edit({
-      model: "gpt-image-2.5-sunburst",
-      image: imageFile,
-      prompt: aspectPrompt,
-      size: "auto",
-      quality: "high",
-    });
+    if (horizontal) {
+      /*
+       * Artwork chính được giữ nguyên tỷ lệ.
+       *
+       * Chiều cao cuối cùng:
+       * 420 px
+       *
+       * Chiều rộng artwork:
+       * giữ theo tỷ lệ gốc.
+       */
+      const workingHeight = 420;
 
-    const resultBase64 =
-      response?.data?.[0]?.b64_json;
+      const centerBuffer = await sharp(sourceBuffer)
+        .resize({
+          height: workingHeight,
+          withoutEnlargement: false,
+          fit: "inside",
+        })
+        .png()
+        .toBuffer();
 
-    if (!resultBase64) {
-      throw new Error(
-        "AI không trả về ảnh sau khi mở rộng."
+      const centerInfo = await sharp(centerBuffer).metadata();
+
+      const centerWidth = centerInfo.width;
+
+      /*
+       * Tạo một vùng tham chiếu cho AI.
+       *
+       * AI sẽ được yêu cầu mở rộng artwork
+       * về hai phía.
+       */
+      const leftExtension = await generateExtension({
+        imageBuffer: sourceBuffer,
+        direction: "left",
+        width: finalWidth,
+        height: finalHeight,
+        designType,
+        style,
+      });
+
+      const rightExtension = await generateExtension({
+        imageBuffer: sourceBuffer,
+        direction: "right",
+        width: finalWidth,
+        height: finalHeight,
+        designType,
+        style,
+      });
+
+      /*
+       * Chuẩn hóa hai ảnh AI về cùng chiều cao.
+       */
+      const leftPrepared = await sharp(leftExtension)
+        .resize({
+          height: workingHeight,
+          fit: "cover",
+        })
+        .png()
+        .toBuffer();
+
+      const rightPrepared = await sharp(rightExtension)
+        .resize({
+          height: workingHeight,
+          fit: "cover",
+        })
+        .png()
+        .toBuffer();
+
+      const leftInfo = await sharp(leftPrepared).metadata();
+      const rightInfo = await sharp(rightPrepared).metadata();
+
+      /*
+       * Chiều rộng cuối cùng.
+       */
+      const finalPixelWidth = 2400;
+      const finalPixelHeight = Math.max(
+        1,
+        Math.round(finalPixelWidth / targetRatio)
       );
+
+      /*
+       * Artwork chính được đặt chính giữa.
+       */
+      const centerFinal = await sharp(centerBuffer)
+        .resize({
+          height: finalPixelHeight,
+          fit: "inside",
+        })
+        .png()
+        .toBuffer();
+
+      const centerFinalInfo =
+        await sharp(centerFinal).metadata();
+
+      const actualCenterWidth = centerFinalInfo.width;
+
+      /*
+       * Hai bên chia đều phần còn lại.
+       */
+      const remaining =
+        finalPixelWidth - actualCenterWidth;
+
+      const sideWidth = Math.floor(remaining / 2);
+
+      /*
+       * Chuẩn bị phần AI bên trái.
+       */
+      const leftFinal = await sharp(leftPrepared)
+        .resize({
+          width: sideWidth,
+          height: finalPixelHeight,
+          fit: "cover",
+          position: "right",
+        })
+        .png()
+        .toBuffer();
+
+      /*
+       * Chuẩn bị phần AI bên phải.
+       */
+      const rightFinal = await sharp(rightPrepared)
+        .resize({
+          width:
+            finalPixelWidth -
+            actualCenterWidth -
+            sideWidth,
+          height: finalPixelHeight,
+          fit: "cover",
+          position: "left",
+        })
+        .png()
+        .toBuffer();
+
+      /*
+       * Ghép:
+       *
+       * AI LEFT
+       * +
+       * ORIGINAL CENTER
+       * +
+       * AI RIGHT
+       *
+       * Không kéo giãn artwork chính.
+       */
+      const finalBuffer = await sharp({
+        create: {
+          width: finalPixelWidth,
+          height: finalPixelHeight,
+          channels: 4,
+          background: {
+            r: 255,
+            g: 255,
+            b: 255,
+            alpha: 1,
+          },
+        },
+      })
+        .composite([
+          {
+            input: leftFinal,
+            left: 0,
+            top: 0,
+          },
+          {
+            input: centerFinal,
+            left: sideWidth,
+            top: 0,
+          },
+          {
+            input: rightFinal,
+            left:
+              sideWidth + actualCenterWidth,
+            top: 0,
+          },
+        ])
+        .png()
+        .toBuffer();
+
+      return sendJSON(res, 200, {
+        image:
+          "data:image/png;base64," +
+          finalBuffer.toString("base64"),
+        targetWidth: finalWidth,
+        targetHeight: finalHeight,
+        targetRatio,
+        sourceWidth,
+        sourceHeight,
+        finalWidthPx: finalPixelWidth,
+        finalHeightPx: finalPixelHeight,
+        processed: true,
+        method: "ai-side-expansion",
+        direction: "horizontal",
+      });
     }
 
-    const aiBuffer =
-      Buffer.from(resultBase64, "base64");
-
-    const aiInfo =
-      await getImageInfo(aiBuffer);
-
     /*
-     * Tạo PNG cuối cùng theo đúng tỷ lệ tài liệu.
+     * ============================================================
+     * ULTRA-TALL
+     * ============================================================
+     *
+     * Tương tự nhưng mở rộng trên / dưới.
      */
-    const finalResult =
-      await createFinalRatioImage(
-        aiBuffer,
-        finalTargetWidth,
-        finalTargetHeight
-      );
+    const workingWidth = 420;
 
-    const finalImage =
-      bufferToDataUrl(finalResult.buffer);
+    const centerBuffer = await sharp(sourceBuffer)
+      .resize({
+        width: workingWidth,
+        fit: "inside",
+      })
+      .png()
+      .toBuffer();
 
-    return res.status(200).json({
-      image: finalImage,
+    const topExtension = await generateExtension({
+      imageBuffer: sourceBuffer,
+      direction: "left",
+      width: finalWidth,
+      height: finalHeight,
+      designType,
+      style,
+    });
 
-      targetWidth: finalTargetWidth,
-      targetHeight: finalTargetHeight,
+    const bottomExtension = await generateExtension({
+      imageBuffer: sourceBuffer,
+      direction: "right",
+      width: finalWidth,
+      height: finalHeight,
+      designType,
+      style,
+    });
+
+    const finalPixelHeight = 2400;
+    const finalPixelWidth = Math.max(
+      1,
+      Math.round(finalPixelHeight * targetRatio)
+    );
+
+    const centerFinal = await sharp(centerBuffer)
+      .resize({
+        width: finalPixelWidth,
+        fit: "inside",
+      })
+      .png()
+      .toBuffer();
+
+    const centerInfo = await sharp(centerFinal).metadata();
+
+    const actualCenterHeight = centerInfo.height;
+
+    const remaining =
+      finalPixelHeight - actualCenterHeight;
+
+    const sideHeight = Math.floor(remaining / 2);
+
+    const topFinal = await sharp(topExtension)
+      .resize({
+        width: finalPixelWidth,
+        height: sideHeight,
+        fit: "cover",
+        position: "bottom",
+      })
+      .png()
+      .toBuffer();
+
+    const bottomFinal = await sharp(bottomExtension)
+      .resize({
+        width: finalPixelWidth,
+        height:
+          finalPixelHeight -
+          actualCenterHeight -
+          sideHeight,
+        fit: "cover",
+        position: "top",
+      })
+      .png()
+      .toBuffer();
+
+    const finalBuffer = await sharp({
+      create: {
+        width: finalPixelWidth,
+        height: finalPixelHeight,
+        channels: 4,
+        background: {
+          r: 255,
+          g: 255,
+          b: 255,
+          alpha: 1,
+        },
+      },
+    })
+      .composite([
+        {
+          input: topFinal,
+          left: 0,
+          top: 0,
+        },
+        {
+          input: centerFinal,
+          left:
+            Math.floor(
+              (finalPixelWidth - centerInfo.width) / 2
+            ),
+          top: sideHeight,
+        },
+        {
+          input: bottomFinal,
+          left: 0,
+          top:
+            sideHeight + actualCenterHeight,
+        },
+      ])
+      .png()
+      .toBuffer();
+
+    return sendJSON(res, 200, {
+      image:
+        "data:image/png;base64," +
+        finalBuffer.toString("base64"),
+      targetWidth: finalWidth,
+      targetHeight: finalHeight,
       targetRatio,
-
-      layoutType,
-
-      source: {
-        width: sourceInfo.width,
-        height: sourceInfo.height,
-        ratio: sourceInfo.ratio,
-      },
-
-      workingCanvas: {
-        width: expansionCanvas.width,
-        height: expansionCanvas.height,
-        ratio:
-          expansionCanvas.width /
-          expansionCanvas.height,
-      },
-
-      aiOutput: {
-        width: aiInfo.width,
-        height: aiInfo.height,
-        ratio: aiInfo.ratio,
-      },
-
-      final: {
-        width: finalResult.width,
-        height: finalResult.height,
-        ratio: finalResult.ratio,
-      },
-
-      pipeline: "AI_EXPAND_TO_PRINT_RATIO",
+      sourceWidth,
+      sourceHeight,
+      finalWidthPx: finalPixelWidth,
+      finalHeightPx: finalPixelHeight,
+      processed: true,
+      method: "ai-side-expansion",
+      direction: "vertical",
     });
   } catch (error) {
-    console.error("EDIT API ERROR:", error);
+    console.error("EDIT ERROR:", error);
 
-    return res.status(500).json({
+    return sendJSON(res, 500, {
       error:
         error?.message ||
-        "Có lỗi xảy ra khi xử lý ảnh.",
+        "Không thể xử lý mở rộng ảnh.",
     });
   }
 }
