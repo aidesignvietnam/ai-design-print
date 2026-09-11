@@ -1,28 +1,63 @@
-```javascript
 import OpenAI from "openai";
 import sharp from "sharp";
-import { toFile } from "openai/uploads";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-function json(res, status, data) {
-  return res.status(status).json(data);
-}
+/* =========================================
+   TÍNH TỶ LỆ
+========================================= */
 
 function getRatio(width, height) {
-  return Number(width) / Number(height);
+  const w = Number(width);
+  const h = Number(height);
+
+  if (
+    !Number.isFinite(w) ||
+    !Number.isFinite(h) ||
+    w <= 0 ||
+    h <= 0
+  ) {
+    throw new Error("Kích thước không hợp lệ.");
+  }
+
+  return w / h;
 }
+
+/* =========================================
+   KÍCH THƯỚC ĐẦU RA
+========================================= */
 
 function getTargetSize(width, height) {
   const ratio = getRatio(width, height);
 
-  const targetWidth = 1536;
+  const MAX_WIDTH = 1536;
+  const MAX_HEIGHT = 1536;
 
-  const targetHeight = Math.max(
+  let targetWidth;
+  let targetHeight;
+
+  if (ratio >= 1) {
+    targetWidth = MAX_WIDTH;
+    targetHeight = Math.round(
+      targetWidth / ratio
+    );
+  } else {
+    targetHeight = MAX_HEIGHT;
+    targetWidth = Math.round(
+      targetHeight * ratio
+    );
+  }
+
+  targetWidth = Math.max(
     256,
-    Math.round(targetWidth / ratio)
+    Math.round(targetWidth / 8) * 8
+  );
+
+  targetHeight = Math.max(
+    256,
+    Math.round(targetHeight / 8) * 8
   );
 
   return {
@@ -31,412 +66,494 @@ function getTargetSize(width, height) {
   };
 }
 
-function buildPrompt({
+/* =========================================
+   CHUYỂN DATA URL → BUFFER
+========================================= */
+
+function dataUrlToBuffer(dataUrl) {
+  if (!dataUrl) {
+    throw new Error("Không có ảnh đầu vào.");
+  }
+
+  if (typeof dataUrl !== "string") {
+    throw new Error("Ảnh đầu vào không hợp lệ.");
+  }
+
+  const commaIndex = dataUrl.indexOf(",");
+
+  if (commaIndex === -1) {
+    throw new Error("Data URL không hợp lệ.");
+  }
+
+  const base64 = dataUrl.slice(
+    commaIndex + 1
+  );
+
+  return Buffer.from(base64, "base64");
+}
+
+/* =========================================
+   BUFFER → DATA URL
+========================================= */
+
+function bufferToDataUrl(buffer) {
+  return `data:image/png;base64,${buffer.toString(
+    "base64"
+  )}`;
+}
+
+/* =========================================
+   TẠO CANVAS TRONG SUỐT
+========================================= */
+
+async function prepareCanvas(
+  imageBuffer,
+  target
+) {
+  const image = sharp(imageBuffer);
+
+  const metadata = await image.metadata();
+
+  if (!metadata.width || !metadata.height) {
+    throw new Error(
+      "Không đọc được kích thước ảnh."
+    );
+  }
+
+  const sourceRatio =
+    metadata.width / metadata.height;
+
+  const targetRatio =
+    target.width / target.height;
+
+  console.log(
+    "ASPECT SOURCE:",
+    {
+      width: metadata.width,
+      height: metadata.height,
+      ratio: sourceRatio,
+    }
+  );
+
+  console.log(
+    "ASPECT TARGET:",
+    {
+      width: target.width,
+      height: target.height,
+      ratio: targetRatio,
+    }
+  );
+
+  /*
+   * Giữ nguyên tỷ lệ ảnh nguồn.
+   *
+   * KHÔNG dùng fit: fill.
+   *
+   * Ảnh được thu nhỏ vừa đủ để nằm trong
+   * canvas mục tiêu.
+   */
+
+  const resized = await image
+    .resize({
+      width: target.width,
+      height: target.height,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .png()
+    .toBuffer();
+
+  const resizedMeta =
+    await sharp(resized).metadata();
+
+  const resizedWidth =
+    resizedMeta.width || target.width;
+
+  const resizedHeight =
+    resizedMeta.height || target.height;
+
+  /*
+   * Đặt ảnh nguồn ở giữa canvas.
+   *
+   * Phần còn lại là vùng cần AI mở rộng.
+   */
+
+  const left =
+    Math.max(
+      0,
+      Math.round(
+        (target.width - resizedWidth) / 2
+      )
+    );
+
+  const top =
+    Math.max(
+      0,
+      Math.round(
+        (target.height - resizedHeight) / 2
+      )
+    );
+
+  const canvas = await sharp({
+    create: {
+      width: target.width,
+      height: target.height,
+      channels: 4,
+      background: {
+        r: 0,
+        g: 0,
+        b: 0,
+        alpha: 0,
+      },
+    },
+  })
+    .composite([
+      {
+        input: resized,
+        left,
+        top,
+      },
+    ])
+    .png()
+    .toBuffer();
+
+  /*
+   * Mask:
+   *
+   * Trắng = vùng AI được phép chỉnh sửa/mở rộng.
+   * Đen = vùng nội dung gốc cần bảo vệ.
+   *
+   * Ta để vùng ngoài ảnh gốc là trắng.
+   */
+
+  const mask = await sharp({
+    create: {
+      width: target.width,
+      height: target.height,
+      channels: 4,
+      background: {
+        r: 255,
+        g: 255,
+        b: 255,
+        alpha: 1,
+      },
+    },
+  })
+    .composite([
+      {
+        input: await sharp({
+          create: {
+            width: resizedWidth,
+            height: resizedHeight,
+            channels: 4,
+            background: {
+              r: 0,
+              g: 0,
+              b: 0,
+              alpha: 1,
+            },
+          },
+        })
+          .png()
+          .toBuffer(),
+
+        left,
+        top,
+      },
+    ])
+    .png()
+    .toBuffer();
+
+  return {
+    canvas,
+    mask,
+    sourceRatio,
+    targetRatio,
+  };
+}
+
+/* =========================================
+   PROMPT OUTPAINT
+========================================= */
+
+function buildEditPrompt({
+  content,
+  designType,
   width,
   height,
   unit,
-  designType,
   style,
-  content,
 }) {
-  const ratio = getRatio(width, height);
-
   return `
 You are editing an existing professional advertising artwork.
 
-TARGET PRINT FORMAT:
-${width} ${unit} × ${height} ${unit}
-
-TARGET ASPECT RATIO:
-${ratio.toFixed(3)} : 1
+FINAL PHYSICAL SIZE:
+${width} × ${height} ${unit}
 
 DESIGN TYPE:
-${designType || "Banner"}
+${designType}
 
 STYLE:
 ${style || "Hiện đại"}
 
-DESIGN BRIEF:
-${content || "Professional advertising design."}
+CUSTOMER CONTENT:
+${content || "Professional advertising design"}
 
-TASK:
+IMPORTANT:
 
-Extend the existing artwork naturally into the masked areas.
+Extend the existing artwork naturally to the required final aspect ratio.
 
-The existing artwork contains the important advertising
-content and must remain visually coherent.
+This is OUTPAINTING, not stretching.
 
-DO NOT redesign the existing artwork.
+PRESERVE the original central artwork.
 
-DO NOT create a second version of the artwork.
+DO NOT stretch or deform:
+- people
+- faces
+- products
+- logos
+- text
+- typography
+- important objects
 
-DO NOT duplicate the main subject.
+DO NOT duplicate:
+- people
+- products
+- logos
+- objects
+- text
 
-DO NOT duplicate people.
+DO NOT create:
+- triptych
+- three panels
+- three separate posters
+- split screen
+- repeated copies
+- mirrored subjects
 
-DO NOT duplicate products.
+The newly created areas must look like a natural continuation
+of the original background.
 
-DO NOT duplicate logos.
-
-DO NOT duplicate typography.
-
-DO NOT create three panels.
-
-DO NOT create a triptych.
-
-DO NOT mirror the original design.
-
-DO NOT create a central frame.
-
-DO NOT create a border.
-
-DO NOT create a mockup.
-
-DO NOT create a wall or billboard presentation.
-
-The masked areas should become a natural continuation of
-the existing visual environment.
-
-Continue compatible:
+Continue:
 - background
 - lighting
-- gradients
-- scenery
-- architecture
-- textures
-- decorative elements
+- colors
 - atmosphere
+- architectural/environmental elements
+- decorative elements
 
-Preserve the original advertising concept.
+Maintain the same visual style and perspective.
 
-The main subject should appear only once.
+The final result must look like ONE SINGLE LARGE PROFESSIONAL
+ADVERTISING DESIGN.
 
-Do not stretch people.
+The background must flow continuously from left to right
+or from top to bottom depending on the required format.
 
-Do not stretch products.
+Keep the main content visually coherent and correctly proportioned.
 
-Do not distort important objects.
+Do not redesign the original content unnecessarily.
 
-Do not add unrelated text.
+Only extend the canvas where additional space is required.
 
-Do not add watermarks.
-
-The result will be printed as a large-format advertising banner.
+The result should be suitable for large-format printing.
 `;
 }
 
+/* =========================================
+   API HANDLER
+========================================= */
+
 export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    return res.status(405).json({
+      error: "Method not allowed.",
+    });
+  }
+
   try {
-    if (req.method !== "POST") {
-      return json(res, 405, {
-        error: "Method not allowed",
-      });
-    }
+    const {
+      image,
+      content = "",
+      designType = "Backdrop",
+      width,
+      height,
+      unit = "cm",
+      style = "Hiện đại",
+    } = req.body || {};
 
-    const body = req.body || {};
-
-    const sourceImage = body.image;
-
-    const width = Number(
-      body.targetWidth || body.width
-    );
-
-    const height = Number(
-      body.targetHeight || body.height
-    );
-
-    const unit = body.unit || "cm";
-
-    const designType =
-      body.designType || "Banner";
-
-    const style =
-      body.style || "Hiện đại";
-
-    const content =
-      body.content ||
-      body.prompt ||
-      body.editPrompt ||
-      "Thiết kế quảng cáo chuyên nghiệp.";
-
-    if (!sourceImage) {
-      return json(res, 400, {
-        error: "Không nhận được ảnh cần xử lý.",
-      });
-    }
+    const w = Number(width);
+    const h = Number(height);
 
     if (
-      !Number.isFinite(width) ||
-      !Number.isFinite(height) ||
-      width <= 0 ||
-      height <= 0
+      !image ||
+      !Number.isFinite(w) ||
+      !Number.isFinite(h) ||
+      w <= 0 ||
+      h <= 0
     ) {
-      return json(res, 400, {
+      return res.status(400).json({
         error:
-          "Chiều rộng và chiều cao không hợp lệ.",
+          "Thiếu ảnh hoặc kích thước không hợp lệ.",
       });
     }
 
+    const ratio = getRatio(w, h);
+
     const target = getTargetSize(
-      width,
-      height
+      w,
+      h
     );
-
-    let base64 = sourceImage;
-
-    if (base64.includes(",")) {
-      base64 = base64.split(",")[1];
-    }
-
-    const originalBuffer =
-      Buffer.from(base64, "base64");
-
-    const originalMeta =
-      await sharp(originalBuffer).metadata();
-
-    const originalWidth =
-      originalMeta.width || 1536;
-
-    const originalHeight =
-      originalMeta.height || 1024;
-
-    const originalRatio =
-      originalWidth / originalHeight;
-
-    const targetRatio =
-      target.width / target.height;
 
     console.log(
-      "ASPECT EDIT REQUEST",
+      "AI DESIGN PRINT OUTPAINT REQUEST:",
       {
-        physicalWidth: width,
-        physicalHeight: height,
+        width: w,
+        height: h,
         unit,
-        originalWidth,
-        originalHeight,
-        originalRatio,
-        targetWidth: target.width,
-        targetHeight: target.height,
-        targetRatio,
-      }
-    );
-
-    const fitted =
-      await sharp(originalBuffer)
-        .resize({
-          width: Math.min(
-            originalWidth,
-            target.width
-          ),
-          height: Math.min(
-            originalHeight,
-            target.height
-          ),
-          fit: "inside",
-          withoutEnlargement: false,
-        })
-        .png()
-        .toBuffer();
-
-    const fittedMeta =
-      await sharp(fitted).metadata();
-
-    const fittedWidth =
-      fittedMeta.width || originalWidth;
-
-    const fittedHeight =
-      fittedMeta.height || originalHeight;
-
-    const canvas =
-      await sharp({
-        create: {
-          width: target.width,
-          height: target.height,
-          channels: 4,
-          background: {
-            r: 0,
-            g: 0,
-            b: 0,
-            alpha: 0,
-          },
-        },
-      })
-        .composite([
-          {
-            input: fitted,
-            left: Math.round(
-              (target.width - fittedWidth) / 2
-            ),
-            top: Math.round(
-              (target.height - fittedHeight) / 2
-            ),
-          },
-        ])
-        .png()
-        .toBuffer();
-
-    const left =
-      Math.round(
-        (target.width - fittedWidth) / 2
-      );
-
-    const top =
-      Math.round(
-        (target.height - fittedHeight) / 2
-      );
-
-    const mask =
-      await sharp({
-        create: {
-          width: target.width,
-          height: target.height,
-          channels: 4,
-          background: {
-            r: 255,
-            g: 255,
-            b: 255,
-            alpha: 1,
-          },
-        },
-      })
-        .composite([
-          {
-            input: await sharp({
-              create: {
-                width: fittedWidth,
-                height: fittedHeight,
-                channels: 4,
-                background: {
-                  r: 0,
-                  g: 0,
-                  b: 0,
-                  alpha: 1,
-                },
-              },
-            })
-              .png()
-              .toBuffer(),
-
-            left,
-            top,
-          },
-        ])
-        .png()
-        .toBuffer();
-
-    const imageFile = await toFile(
-      canvas,
-      "canvas.png",
-      {
-        type: "image/png",
-      }
-    );
-
-    const maskFile = await toFile(
-      mask,
-      "mask.png",
-      {
-        type: "image/png",
-      }
-    );
-
-    const prompt =
-      buildPrompt({
-        width,
-        height,
-        unit,
+        ratio,
+        target,
         designType,
         style,
+      }
+    );
+
+    const imageBuffer =
+      dataUrlToBuffer(image);
+
+    const prepared =
+      await prepareCanvas(
+        imageBuffer,
+        target
+      );
+
+    console.log(
+      "AI DESIGN PRINT PREPARED:",
+      {
+        sourceRatio:
+          prepared.sourceRatio,
+        targetRatio:
+          prepared.targetRatio,
+        targetWidth:
+          target.width,
+        targetHeight:
+          target.height,
+      }
+    );
+
+    const editPrompt =
+      buildEditPrompt({
         content,
+        designType,
+        width: w,
+        height: h,
+        unit,
+        style,
       });
 
     const response =
       await openai.images.edit({
         model: "gpt-image-2",
-        image: imageFile,
-        mask: maskFile,
-        prompt,
+
+        image: prepared.canvas,
+
+        mask: prepared.mask,
+
+        prompt: editPrompt,
+
         size: "auto",
+
         quality: "high",
+
         output_format: "png",
       });
 
-    const result =
+    const resultBase64 =
       response?.data?.[0]?.b64_json;
 
-    if (!result) {
+    if (!resultBase64) {
       throw new Error(
-        "AI không trả về ảnh mở rộng."
+        "AI không trả về ảnh sau khi mở rộng."
       );
     }
 
     const resultBuffer =
       Buffer.from(
-        result,
+        resultBase64,
         "base64"
       );
 
-    const finalImage =
+    /*
+     * Chỉ resize về đúng tỷ lệ nếu AI trả về
+     * kích thước khác target.
+     *
+     * KHÔNG dùng fit: fill.
+     *
+     * Vì mục tiêu là bảo vệ tỷ lệ nội dung.
+     */
+
+    const processed =
       await sharp(resultBuffer)
-        .resize(
-          target.width,
-          target.height,
-          {
-            fit: "fill",
-          }
-        )
-        .png()
+        .resize({
+          width: target.width,
+          height: target.height,
+          fit: "contain",
+          background: {
+            r: 255,
+            g: 255,
+            b: 255,
+            alpha: 0,
+          },
+        })
+        .png({
+          compressionLevel: 9,
+          adaptiveFiltering: true,
+        })
         .toBuffer();
 
-    const finalMeta =
-      await sharp(finalImage).metadata();
+    const finalImage =
+      bufferToDataUrl(processed);
 
     console.log(
-      "ASPECT EDIT RESULT",
+      "AI DESIGN PRINT OUTPAINT RESULT:",
       {
-        width: finalMeta.width,
-        height: finalMeta.height,
+        width: target.width,
+        height: target.height,
         ratio:
-          finalMeta.width /
-          finalMeta.height,
+          target.width /
+          target.height,
       }
     );
 
-    return json(res, 200, {
-      image:
-        "data:image/png;base64," +
-        finalImage.toString("base64"),
+    return res.status(200).json({
+      image: finalImage,
 
-      width,
-      height,
-      unit,
+      width: target.width,
+      height: target.height,
 
-      targetRatio,
+      targetWidth: target.width,
+      targetHeight: target.height,
 
-      outputWidth:
-        finalMeta.width,
-
-      outputHeight:
-        finalMeta.height,
+      ratio,
 
       method:
-        "AI_MASK_OUTPAINT",
+        "AI_MASK_OUTPAINT_NO_STRETCH",
 
       promptVersion:
-        "AI-DESIGN-PRINT-OUTPAINT-V1",
-    });
+        "AI-DESIGN-PRINT-OUTPAINT-V3",
 
+      success: true,
+    });
   } catch (error) {
     console.error(
-      "EDIT ERROR:",
+      "AI DESIGN PRINT OUTPAINT ERROR:",
       error
     );
 
-    return json(res, 500, {
+    return res.status(500).json({
       error:
         error?.message ||
-        "Không thể mở rộng ảnh AI.",
+        "Không thể mở rộng thiết kế AI.",
     });
   }
 }
-```
