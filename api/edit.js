@@ -18,21 +18,12 @@ function getRatio(width, height) {
 function getTargetSize(width, height) {
   const ratio = getRatio(width, height);
 
-  const maxDimension = 3840;
+  const targetWidth = 1536;
 
-  let targetWidth;
-  let targetHeight;
-
-  if (ratio >= 1) {
-    targetWidth = maxDimension;
-    targetHeight = Math.round((targetWidth / ratio) / 16) * 16;
-  } else {
-    targetHeight = maxDimension;
-    targetWidth = Math.round((targetHeight * ratio) / 16) * 16;
-  }
-
-  targetWidth = Math.max(256, targetWidth);
-  targetHeight = Math.max(256, targetHeight);
+  const targetHeight = Math.max(
+    256,
+    Math.round(targetWidth / ratio)
+  );
 
   return {
     width: targetWidth,
@@ -70,10 +61,10 @@ ${content || "Professional advertising design."}
 
 TASK:
 
-Extend the existing artwork naturally into the transparent masked areas.
+Extend the existing artwork naturally into the masked areas.
 
-The existing artwork contains the important advertising content.
-Preserve the original artwork exactly as much as possible.
+The existing artwork contains the important advertising
+content and must remain visually coherent.
 
 DO NOT redesign the existing artwork.
 
@@ -103,9 +94,10 @@ DO NOT create a mockup.
 
 DO NOT create a wall or billboard presentation.
 
-Only extend the background and surrounding environment.
+The masked areas should become a natural continuation of
+the existing visual environment.
 
-Continue naturally with compatible:
+Continue compatible:
 - background
 - lighting
 - gradients
@@ -115,27 +107,19 @@ Continue naturally with compatible:
 - decorative elements
 - atmosphere
 
-The main subject must appear only once.
+Preserve the original advertising concept.
 
-People must keep their original proportions.
+The main subject should appear only once.
 
-Products must keep their original proportions.
+Do not stretch people.
 
-Logos must keep their original proportions.
-
-Typography must not be stretched.
-
-Do not stretch the original artwork.
-
-Do not squeeze the original artwork.
+Do not stretch products.
 
 Do not distort important objects.
 
 Do not add unrelated text.
 
 Do not add watermarks.
-
-The final result must look like ONE continuous professional large-format advertising artwork.
 
 The result will be printed as a large-format advertising banner.
 `;
@@ -188,7 +172,8 @@ export default async function handler(req, res) {
       height <= 0
     ) {
       return json(res, 400, {
-        error: "Chiều rộng và chiều cao không hợp lệ.",
+        error:
+          "Chiều rộng và chiều cao không hợp lệ.",
       });
     }
 
@@ -262,16 +247,6 @@ export default async function handler(req, res) {
     const fittedHeight =
       fittedMeta.height || originalHeight;
 
-    const left =
-      Math.round(
-        (target.width - fittedWidth) / 2
-      );
-
-    const top =
-      Math.round(
-        (target.height - fittedHeight) / 2
-      );
-
     const canvas =
       await sharp({
         create: {
@@ -289,25 +264,32 @@ export default async function handler(req, res) {
         .composite([
           {
             input: fitted,
-            left,
-            top,
+            left: Math.round(
+              (target.width - fittedWidth) / 2
+            ),
+            top: Math.round(
+              (target.height - fittedHeight) / 2
+            ),
           },
         ])
         .png()
         .toBuffer();
 
-    /*
-     * OpenAI image edit mask:
-     *
-     * OPAQUE area = preserve original artwork.
-     * TRANSPARENT area = allow AI to generate/extend.
-     */
+    const left =
+      Math.round(
+        (target.width - fittedWidth) / 2
+      );
 
-    const originalMask =
+    const top =
+      Math.round(
+        (target.height - fittedHeight) / 2
+      );
+
+    const mask =
       await sharp({
         create: {
-          width: fittedWidth,
-          height: fittedHeight,
+          width: target.width,
+          height: target.height,
           channels: 4,
           background: {
             r: 255,
@@ -317,26 +299,24 @@ export default async function handler(req, res) {
           },
         },
       })
-        .png()
-        .toBuffer();
-
-    const mask =
-      await sharp({
-        create: {
-          width: target.width,
-          height: target.height,
-          channels: 4,
-          background: {
-            r: 0,
-            g: 0,
-            b: 0,
-            alpha: 0,
-          },
-        },
-      })
         .composite([
           {
-            input: originalMask,
+            input: await sharp({
+              create: {
+                width: fittedWidth,
+                height: fittedHeight,
+                channels: 4,
+                background: {
+                  r: 0,
+                  g: 0,
+                  b: 0,
+                  alpha: 1,
+                },
+              },
+            })
+              .png()
+              .toBuffer(),
+
             left,
             top,
           },
@@ -370,18 +350,13 @@ export default async function handler(req, res) {
         content,
       });
 
-    console.log(
-      "OPENAI OUTPAINT SIZE:",
-      `${target.width}x${target.height}`
-    );
-
     const response =
       await openai.images.edit({
         model: "gpt-image-2",
         image: imageFile,
         mask: maskFile,
         prompt,
-        size: `${target.width}x${target.height}`,
+        size: "auto",
         quality: "high",
         output_format: "png",
       });
@@ -401,71 +376,23 @@ export default async function handler(req, res) {
         "base64"
       );
 
-    const resultMeta =
-      await sharp(resultBuffer).metadata();
-
-    const resultWidth =
-      resultMeta.width || 0;
-
-    const resultHeight =
-      resultMeta.height || 0;
-
-    if (!resultWidth || !resultHeight) {
-      throw new Error(
-        "Không đọc được kích thước ảnh AI trả về."
-      );
-    }
-
-    const resultRatio =
-      resultWidth / resultHeight;
-
-    const ratioDifference =
-      Math.abs(
-        resultRatio - targetRatio
-      ) / targetRatio;
-
-    console.log(
-      "ASPECT EDIT RESULT",
-      {
-        width: resultWidth,
-        height: resultHeight,
-        ratio: resultRatio,
-        targetWidth: target.width,
-        targetHeight: target.height,
-        targetRatio,
-        ratioDifference,
-      }
-    );
-
-    let finalImage;
-
-    if (
-      resultWidth === target.width &&
-      resultHeight === target.height
-    ) {
-      finalImage = resultBuffer;
-    } else if (ratioDifference <= 0.02) {
-      finalImage =
-        await sharp(resultBuffer)
-          .resize({
-            width: target.width,
-            height: target.height,
-            fit: "inside",
-            withoutEnlargement: false,
-          })
-          .png()
-          .toBuffer();
-    } else {
-      throw new Error(
-        `AI trả về tỷ lệ ảnh không đúng. Nhận được ${resultWidth}x${resultHeight}, yêu cầu ${target.width}x${target.height}.`
-      );
-    }
+    const finalImage =
+      await sharp(resultBuffer)
+        .resize(
+          target.width,
+          target.height,
+          {
+            fit: "fill",
+          }
+        )
+        .png()
+        .toBuffer();
 
     const finalMeta =
       await sharp(finalImage).metadata();
 
     console.log(
-      "FINAL IMAGE",
+      "ASPECT EDIT RESULT",
       {
         width: finalMeta.width,
         height: finalMeta.height,
@@ -493,10 +420,10 @@ export default async function handler(req, res) {
         finalMeta.height,
 
       method:
-        "AI_MASK_OUTPAINT_NO_STRETCH",
+        "AI_MASK_OUTPAINT",
 
       promptVersion:
-        "AI-DESIGN-PRINT-OUTPAINT-V2",
+        "AI-DESIGN-PRINT-OUTPAINT-V1",
     });
 
   } catch (error) {
