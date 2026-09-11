@@ -4,177 +4,240 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
+/* =========================
+   KÍCH THƯỚC & TỶ LỆ
+========================= */
+
 function getRatio(width, height) {
   const w = Number(width);
   const h = Number(height);
 
-  if (!w || !h || w <= 0 || h <= 0) {
+  if (!Number.isFinite(w) || !Number.isFinite(h) || w <= 0 || h <= 0) {
     throw new Error("Kích thước không hợp lệ.");
   }
 
   return w / h;
 }
 
+/*
+ * GPT-Image-2:
+ * - Cạnh dài tối đa: 3840 px
+ * - Aspect ratio tối đa: 3:1
+ */
 function classifyLayout(ratio) {
-  if (ratio >= 4.5) return "ULTRA_WIDE";
-  if (ratio >= 2.5) return "WIDE";
-  if (ratio <= 0.45) return "ULTRA_TALL";
-  if (ratio <= 0.7) return "TALL";
+  if (ratio > 3) {
+    return "EXTREME_WIDE";
+  }
+
+  if (ratio >= 2.5) {
+    return "WIDE";
+  }
+
+  if (ratio < 1 / 3) {
+    return "EXTREME_TALL";
+  }
+
+  if (ratio <= 0.7) {
+    return "TALL";
+  }
 
   return "STANDARD";
 }
 
 /*
- * GPT-Image-2 cần kích thước pixel hợp lý.
- * Quan trọng: kích thước này được tính theo TỶ LỆ thật,
- * không dùng resize fill để ép méo hình.
+ * Tạo kích thước mà GPT-Image-2 chấp nhận.
+ *
+ * Nếu tỷ lệ người dùng yêu cầu > 3:1:
+ *   → không thể Generate trực tiếp
+ *   → Generate ở 3:1
+ *   → bước edit/outpaint sau đó sẽ mở rộng nền.
+ *
+ * Nếu tỷ lệ < 1:3:
+ *   → tương tự cho khổ dọc cực cao.
  */
 function getOutputSize(ratio) {
-  const MAX = 3840;
+  const MAX_EDGE = 3840;
+  const MAX_RATIO = 3;
 
   let width;
   let height;
 
-  if (ratio >= 1) {
-    width = MAX;
+  // PANORAMA CỰC RỘNG
+  if (ratio > MAX_RATIO) {
+    width = MAX_EDGE;
+    height = Math.round(width / MAX_RATIO);
+  }
+
+  // PANORAMA CỰC DỌC
+  else if (ratio < 1 / MAX_RATIO) {
+    height = MAX_EDGE;
+    width = Math.round(height / MAX_RATIO);
+  }
+
+  // TỶ LỆ BÌNH THƯỜNG
+  else if (ratio >= 1) {
+    width = MAX_EDGE;
     height = Math.round(width / ratio);
-  } else {
-    height = MAX;
+  }
+
+  // TỶ LỆ DỌC
+  else {
+    height = MAX_EDGE;
     width = Math.round(height * ratio);
   }
 
-  // Làm tròn về bội số 16
-  width = Math.max(16, Math.round(width / 16) * 16);
-  height = Math.max(16, Math.round(height / 16) * 16);
+  /*
+   * GPT image size nên là bội số 16.
+   */
+  width = Math.max(
+    16,
+    Math.round(width / 16) * 16
+  );
 
-  // Bảo đảm cạnh dài không vượt quá 3840
-  if (width > MAX) {
-    width = MAX;
-    height = Math.max(16, Math.round(width / ratio / 16) * 16);
+  height = Math.max(
+    16,
+    Math.round(height / 16) * 16
+  );
+
+  /*
+   * Bảo vệ lần cuối:
+   * không cạnh nào được vượt 3840.
+   */
+  if (width > MAX_EDGE) {
+    width = MAX_EDGE;
   }
 
-  if (height > MAX) {
-    height = MAX;
-    width = Math.max(16, Math.round(height * ratio / 16) * 16);
+  if (height > MAX_EDGE) {
+    height = MAX_EDGE;
   }
 
   return `${width}x${height}`;
 }
+
+/* =========================
+   BỐ CỤC
+========================= */
+
 function buildLayoutInstruction({
-  designType,
-  style,
-  width,
-  height,
-  unit,
-  ratio,
   layout,
+  ratio,
 }) {
-  const physicalSize = `${width} × ${height} ${unit}`;
+  const ratioText = ratio.toFixed(4);
 
-  let layoutInstruction = "";
+  if (layout === "EXTREME_WIDE") {
+    return `
+ĐÂY LÀ MỘT THIẾT KẾ PANORAMA CỰC RỘNG.
 
-  if (layout === "ULTRA_WIDE") {
-    layoutInstruction = `
-ĐÂY LÀ THIẾT KẾ PANORAMA CỰC RỘNG.
+TỶ LỆ THIẾT KẾ CUỐI CÙNG:
+${ratioText}:1
 
-Tỷ lệ mục tiêu là ${ratio.toFixed(4)}:1.
+Ảnh hiện tại chỉ là bước tạo bố cục ban đầu.
+Không được cố làm biến dạng nội dung để đạt chiều rộng cực lớn.
 
-Hãy thiết kế một BỐ CỤC QUẢNG CÁO DUY NHẤT, LIÊN TỤC trên toàn bộ chiều ngang.
+Hãy tạo một bố cục quảng cáo ngang rộng, chuyên nghiệp và liên tục.
 
-Không được thiết kế như ba poster ghép lại.
-Không được chia thành ba panel.
-Không được lặp lại cùng một nhân vật hoặc sản phẩm ở nhiều vị trí.
-Không được kéo giãn nhân vật, sản phẩm, logo hoặc vật thể.
+YÊU CẦU:
 
-Phân bổ hình ảnh, nội dung và trang trí cân bằng từ trái sang phải.
+- Một không gian thiết kế duy nhất.
+- Background liên tục từ trái sang phải.
+- Bố cục cân bằng toàn chiều ngang.
+- Không dồn tất cả nội dung vào chính giữa.
+- Hai bên phải có yếu tố trang trí phù hợp.
+- Nội dung chính phải nổi bật.
+- Các thành phần phụ hỗ trợ nội dung chính.
+- Có khoảng thở hợp lý.
+- Không tạo khoảng trống chết.
+- Không chia thành ba poster.
+- Không tạo triptych.
+- Không tạo ba panel.
+- Không nhân đôi nhân vật.
+- Không nhân đôi sản phẩm.
+- Không nhân đôi logo.
+- Không nhân đôi cùng một vật thể.
+- Không kéo dài hoặc bóp méo người.
+- Không kéo dài hoặc bóp méo sản phẩm.
+- Không kéo dài hoặc bóp méo logo.
 
-Không để phần giữa quá nặng trong khi hai bên trống.
-Không để hai đầu thiết kế bị bỏ trống vô lý.
+Hãy thiết kế như một backdrop hoặc biển quảng cáo thực tế
+có thể trải dài hàng mét ngoài đời.
 
-Các chi tiết nền phải liên tục và hòa vào cùng một không gian.
-Nếu cần thêm diện tích, hãy mở rộng KHÔNG GIAN VÀ NỀN một cách tự nhiên.
+Nếu cần thêm không gian,
+hãy để background và môi trường có khả năng tiếp tục tự nhiên
+ở hai bên.
 
-Ưu tiên:
-- bố cục ngang chuyên nghiệp
-- chiều sâu
-- khoảng thở
-- cân bằng thị giác
-- điểm nhấn rõ ràng
-- nền liên tục
-- các thành phần hòa vào cùng một thiết kế
+Không dùng các đường chia dọc để giả lập panorama.
 `;
-  } else if (layout === "WIDE") {
-    layoutInstruction = `
+
+  }
+
+  if (layout === "WIDE") {
+    return `
 ĐÂY LÀ THIẾT KẾ NGANG RỘNG.
 
-Tỷ lệ mục tiêu là ${ratio.toFixed(4)}:1.
+TỶ LỆ:
+${ratioText}:1
 
-Bố cục phải trải đều theo chiều ngang.
-Không dồn toàn bộ nội dung vào trung tâm.
-Hai bên phải có các yếu tố hỗ trợ phù hợp nhưng không được gây rối.
+Tạo một bố cục quảng cáo duy nhất và liên tục.
 
-Tạo một không gian thiết kế liên tục, cân bằng và chuyên nghiệp.
-Không nhân đôi đối tượng.
-Không chia thành các panel riêng biệt.
+Phân bổ nội dung hợp lý từ trái sang phải.
+Không dồn mọi thứ vào giữa.
+Không để hai bên trống bất hợp lý.
+
+Không chia thành ba panel.
+Không nhân đôi người, sản phẩm hoặc vật thể.
+Không làm méo các đối tượng.
+
+Background phải liên tục và hòa hợp với toàn bộ thiết kế.
 `;
-  } else if (layout === "TALL" || layout === "ULTRA_TALL") {
-    layoutInstruction = `
+  }
+
+  if (
+    layout === "TALL" ||
+    layout === "EXTREME_TALL"
+  ) {
+    return `
 ĐÂY LÀ THIẾT KẾ DỌC.
 
-Tỷ lệ mục tiêu là ${ratio.toFixed(4)}:1.
+TỶ LỆ:
+${ratioText}:1
 
-Bố cục phải tận dụng chiều cao.
-Các thành phần được sắp xếp theo chiều dọc có thứ bậc rõ ràng.
+Tận dụng chiều cao của thiết kế.
 
-Không kéo giãn người, sản phẩm hoặc vật thể.
+Sắp xếp nội dung theo thứ bậc rõ ràng.
+Tạo khoảng thở hợp lý.
+
+Không kéo dài người.
+Không kéo dài sản phẩm.
+Không bóp méo logo.
 Không nhân đôi đối tượng.
-Không để khoảng trống chết quá lớn.
-`;
-  } else {
-    layoutInstruction = `
-ĐÂY LÀ THIẾT KẾ KHỔ TIÊU CHUẨN.
 
-Tỷ lệ mục tiêu là ${ratio.toFixed(4)}:1.
-
-Tạo bố cục cân bằng, chuyên nghiệp và dễ đọc.
-Có phân cấp rõ ràng giữa nội dung chính, nội dung phụ và hình ảnh.
-Không dồn tất cả thành phần vào một điểm.
+Background phải liên tục từ trên xuống dưới.
 `;
   }
 
   return `
-KÍCH THƯỚC THIẾT KẾ:
-${physicalSize}
+ĐÂY LÀ THIẾT KẾ KHỔ TIÊU CHUẨN.
 
-TỶ LỆ HÌNH ẢNH MỤC TIÊU:
-${ratio.toFixed(6)}:1
+TỶ LỆ:
+${ratioText}:1
 
-LOẠI THIẾT KẾ:
-${designType}
+Tạo bố cục cân bằng và chuyên nghiệp.
 
-PHONG CÁCH:
-${style || "Hiện đại"}
+Phân cấp rõ:
+- Nội dung chính
+- Nội dung phụ
+- Hình ảnh
+- Trang trí
+- Background
 
-${layoutInstruction}
-
-QUY TẮC CHUNG:
-
-1. Giữ đúng tỷ lệ của mọi người, sản phẩm, logo và vật thể.
-2. Không bóp méo hoặc kéo dài đối tượng.
-3. Không nhân đôi đối tượng.
-4. Không tạo bố cục triptych.
-5. Không tạo ba khu vực như ba ảnh ghép.
-6. Tạo một background liên tục.
-7. Nội dung phải có khoảng thở.
-8. Phân bổ thị giác cân bằng toàn bộ khổ.
-9. Nội dung quan trọng nằm trong vùng an toàn, không sát mép.
-10. Hình ảnh và nền phải hòa vào cùng một không gian.
-11. Không tạo khoảng trống vô nghĩa.
-12. Không làm mất cân bằng trái/phải.
-13. Không làm mất cân bằng trên/dưới.
-14. Thiết kế phải có cảm giác là một sản phẩm quảng cáo chuyên nghiệp để in khổ lớn.
+Không dồn tất cả thành phần vào một vị trí.
+Không tạo khoảng trống chết.
 `;
 }
+
+/* =========================
+   PROMPT AI
+========================= */
 
 function buildPrompt({
   designType,
@@ -187,71 +250,133 @@ function buildPrompt({
   layout,
 }) {
   const layoutInstruction = buildLayoutInstruction({
-    designType,
-    style,
-    width,
-    height,
-    unit,
-    ratio,
     layout,
+    ratio,
   });
 
   return `
-Bạn là một ART DIRECTOR chuyên thiết kế quảng cáo khổ lớn,
-backdrop, biển quảng cáo, banner, poster, standee và các sản phẩm in ấn chuyên nghiệp.
+Bạn là ART DIRECTOR chuyên thiết kế quảng cáo chuyên nghiệp
+cho backdrop, biển quảng cáo, banner, poster, standee
+và các sản phẩm in ấn khổ lớn.
 
-NHIỆM VỤ:
+HÃY TẠO THIẾT KẾ DỰA TRÊN YÊU CẦU SAU:
 
-Tạo một thiết kế hoàn chỉnh dựa trên yêu cầu của người dùng.
+LOẠI THIẾT KẾ:
+${designType}
 
-YÊU CẦU CỦA NGƯỜI DÙNG:
-${prompt || "Thiết kế quảng cáo chuyên nghiệp, bố cục đẹp và cân bằng."}
+KÍCH THƯỚC THỰC TẾ:
+${width} × ${height} ${unit}
+
+TỶ LỆ THỰC TẾ:
+${ratio.toFixed(6)}:1
+
+PHONG CÁCH:
+${style || "Hiện đại"}
+
+NỘI DUNG NGƯỜI DÙNG:
+${prompt || "Thiết kế quảng cáo chuyên nghiệp, đẹp và cân bằng."}
 
 ${layoutInstruction}
 
-ƯU TIÊN THIẾT KẾ:
+=========================
+NGUYÊN TẮC THIẾT KẾ
+=========================
 
-- Bố cục đẹp ngay từ đầu.
-- Nội dung chính dễ nhìn.
-- Tiêu đề có thứ bậc rõ ràng.
-- Hình ảnh và chữ có khoảng thở.
-- Các thành phần được phân bố hợp lý trên toàn bộ nền.
-- Nền phải hỗ trợ nội dung thay vì cạnh tranh với nội dung.
-- Màu sắc hài hòa.
-- Ánh sáng và chiều sâu tự nhiên.
-- Phù hợp với in ấn quảng cáo khổ lớn.
+1. Ưu tiên bố cục đẹp trước khi trang trí.
 
-ĐẶC BIỆT:
+2. Nội dung chính phải dễ nhìn và có thứ bậc rõ ràng.
 
-Nếu thiết kế rất rộng, hãy suy nghĩ như một backdrop thực tế
-được thiết kế cho một sân khấu hoặc không gian quảng cáo dài.
+3. Phân bổ các thành phần trên toàn bộ không gian.
 
-Không cố nhét một poster thông thường vào một khổ panorama.
+4. Không để toàn bộ nội dung tập trung vào một điểm.
 
-Không kéo giãn một thiết kế nhỏ thành một thiết kế dài.
+5. Không để khoảng trống lớn vô nghĩa.
 
-Hãy tạo bố cục phù hợp với tỷ lệ ngay từ đầu.
+6. Background phải hỗ trợ nội dung.
 
-KẾT QUẢ MONG MUỐN:
+7. Các thành phần phải hòa vào cùng một không gian.
 
-Một thiết kế quảng cáo duy nhất,
-liên tục,
-cân bằng,
-chuyên nghiệp,
-phù hợp để in khổ lớn.
+8. Giữ tỷ lệ tự nhiên của người, sản phẩm và vật thể.
 
-Không có watermark.
-Không có mockup.
-Không có khung điện thoại.
-Không có giao diện phần mềm.
-Chỉ tạo chính thiết kế được yêu cầu.
+9. Không làm biến dạng khuôn mặt.
+
+10. Không kéo dài cơ thể.
+
+11. Không kéo rộng sản phẩm.
+
+12. Không bóp méo logo.
+
+13. Không nhân đôi nhân vật.
+
+14. Không nhân đôi sản phẩm.
+
+15. Không nhân đôi logo.
+
+16. Không tạo ba bản sao của cùng một đối tượng.
+
+17. Không tạo triptych.
+
+18. Không tạo ba poster ghép lại.
+
+19. Không dùng các đường chia dọc để tạo cảm giác nhiều panel.
+
+20. Không tạo mockup.
+
+21. Không tạo khung điện thoại.
+
+22. Không tạo giao diện phần mềm.
+
+23. Không tạo watermark.
+
+24. Thiết kế phải phù hợp với quảng cáo in khổ lớn.
+
+25. Giữ vùng an toàn quanh nội dung quan trọng.
+
+=========================
+ĐỐI VỚI KHỔ RẤT RỘNG
+=========================
+
+Thiết kế phải được tư duy như một backdrop quảng cáo thực tế.
+
+Không lấy một poster nhỏ rồi kéo dài.
+
+Hãy xây dựng background có chiều sâu,
+các chi tiết trang trí có thể tiếp nối tự nhiên,
+và bố cục cân bằng từ trái sang phải.
+
+Các khu vực trái, giữa và phải phải liên kết
+thành MỘT THIẾT KẾ DUY NHẤT.
+
+Không được có cảm giác ba hình ảnh ghép lại.
+
+=========================
+MỤC TIÊU CUỐI
+=========================
+
+Một thiết kế quảng cáo:
+
+- đẹp
+- cân bằng
+- chuyên nghiệp
+- dễ đọc
+- có chiều sâu
+- background liên tục
+- bố cục rõ ràng
+- phù hợp in ấn
+- không méo đối tượng
+- không nhân đôi đối tượng
+- không chia panel
 `;
 }
+
+/* =========================
+   API
+========================= */
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({
-      error: "Method not allowed",
+      error: "Method not allowed.",
     });
   }
 
@@ -268,14 +393,21 @@ export default async function handler(req, res) {
     const w = Number(width);
     const h = Number(height);
 
-    if (!w || !h || w <= 0 || h <= 0) {
+    if (
+      !Number.isFinite(w) ||
+      !Number.isFinite(h) ||
+      w <= 0 ||
+      h <= 0
+    ) {
       return res.status(400).json({
         error: "Vui lòng nhập kích thước hợp lệ.",
       });
     }
 
     const ratio = getRatio(w, h);
+
     const layout = classifyLayout(ratio);
+
     const outputSize = getOutputSize(ratio);
 
     const designPrompt = buildPrompt({
@@ -289,44 +421,70 @@ export default async function handler(req, res) {
       layout,
     });
 
-    console.log("AI DESIGN PRINT V2 REQUEST:", {
-      width: w,
-      height: h,
-      unit,
-      ratio,
-      layout,
-      outputSize,
-      designType,
-      style,
-    });
+    console.log(
+      "AI DESIGN PRINT V2 GENERATE:",
+      {
+        width: w,
+        height: h,
+        unit,
+        ratio,
+        layout,
+        outputSize,
+        designType,
+        style,
+      }
+    );
 
-    const response = await openai.images.generate({
-      model: "gpt-image-2",
-      prompt: designPrompt,
-      size: outputSize,
-      quality: "high",
-    });
+    const response =
+      await openai.images.generate({
+        model: "gpt-image-2",
+        prompt: designPrompt,
+        size: outputSize,
+        quality: "high",
+      });
 
-    const imageBase64 = response?.data?.[0]?.b64_json;
+    const imageBase64 =
+      response?.data?.[0]?.b64_json;
 
     if (!imageBase64) {
-      throw new Error("AI không trả về hình ảnh.");
+      throw new Error(
+        "AI không trả về hình ảnh."
+      );
     }
 
-    const image = `data:image/png;base64,${imageBase64}`;
+    const image =
+      `data:image/png;base64,${imageBase64}`;
 
     return res.status(200).json({
       image,
+
       width: w,
       height: h,
       unit,
+
       ratio,
+
       layout,
+
       outputSize,
-      promptVersion: "AI-DESIGN-PRINT-V2-LAYOUT",
+
+      needsOutpaint:
+        ratio > 3 ||
+        ratio < 1 / 3,
+
+      promptVersion:
+        "AI-DESIGN-PRINT-V2-GENERATE",
+
+      message:
+        ratio > 3 || ratio < 1 / 3
+          ? "Ảnh được tạo ở tỷ lệ tối đa 3:1 và sẽ được mở rộng nền bằng AI ở bước tiếp theo."
+          : "Ảnh được tạo theo tỷ lệ yêu cầu.",
     });
   } catch (error) {
-    console.error("AI DESIGN PRINT GENERATE ERROR:", error);
+    console.error(
+      "AI DESIGN PRINT V2 GENERATE ERROR:",
+      error
+    );
 
     return res.status(500).json({
       error:
