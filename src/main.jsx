@@ -20,6 +20,7 @@ function App() {
   const [generatedImage, setGeneratedImage] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
+  const [processingStep, setProcessingStep] = useState("");
 
   const designTypes = [
     "Backdrop",
@@ -39,42 +40,63 @@ function App() {
     "Sự kiện",
   ];
 
+  /*
+   * =====================================================
+   * UPLOAD
+   * =====================================================
+   */
+
   const handleUpload = (event) => {
     const file = event.target.files?.[0];
 
     if (!file) return;
 
-    setUploadedImage(URL.createObjectURL(file));
+    const imageUrl = URL.createObjectURL(file);
+
+    setUploadedImage(imageUrl);
     setGeneratedImage(null);
     setError("");
+    setProcessingStep("");
   };
 
   /*
-   * Kiểm tra xem thiết kế có phải tỷ lệ cực rộng / cực cao
-   * cần xử lý thêm hay không.
+   * =====================================================
+   * KIỂM TRA TỶ LỆ
+   * =====================================================
    */
-  const needsAspectProcessing = (w, h) => {
-    if (!w || !h) return false;
 
-    const ratio = w / h;
+  const getAspectRatio = (w, h) => {
+    if (!w || !h) return 0;
+
+    return Number(w) / Number(h);
+  };
+
+  const needsAspectProcessing = (w, h) => {
+    const ratio = getAspectRatio(w, h);
 
     return ratio >= 2 || ratio <= 0.5;
   };
 
   /*
-   * Tự động xử lý tỷ lệ sau khi AI tạo ảnh.
+   * =====================================================
+   * AI MỞ RỘNG ẢNH THEO TỶ LỆ THỰC
    *
    * Ví dụ:
-   * 400 × 70 = 5.714:1
    *
-   * AI tạo artwork ban đầu
-   * ↓
-   * gửi artwork sang /api/edit
-   * ↓
-   * AI mở rộng bố cục
-   * ↓
-   * Sharp tạo canvas cuối cùng đúng tỷ lệ
+   * 400 × 70 cm
+   *
+   * Generate
+   *    ↓
+   * artwork ban đầu
+   *    ↓
+   * /api/edit
+   *    ↓
+   * AI mở rộng nền trái / phải
+   *    ↓
+   * ảnh cuối đúng tỷ lệ
+   * =====================================================
    */
+
   const processAspectRatio = async (
     image,
     w,
@@ -86,97 +108,151 @@ function App() {
       return image;
     }
 
-    const ratio = w / h;
+    const ratio = getAspectRatio(w, h);
+
+    setProcessingStep(
+      `AI đang mở rộng thiết kế theo tỷ lệ ${w} × ${h} ${unit}...`
+    );
 
     const aspectPrompt = `
-IMPORTANT FINAL ASPECT-RATIO PROCESSING.
+FINAL PROFESSIONAL ASPECT-RATIO EXPANSION.
 
-The target physical design size is:
-
+TARGET PRINT SIZE:
 ${w} × ${h} ${unit}
 
-Target aspect ratio:
+TARGET ASPECT RATIO:
 ${ratio.toFixed(4)}:1
 
-The image must be prepared for a professional large-format
-advertising print.
+This is a professional large-format advertising design.
 
-DO NOT stretch or squash the existing artwork.
+The supplied artwork is the original central design.
+
+IMPORTANT:
+
+Preserve the original artwork.
+
+DO NOT stretch the original image.
+
+DO NOT squash the original image.
 
 DO NOT distort:
+
 - people
 - faces
+- bodies
 - products
+- vehicles
 - logos
 - typography
+- letters
+- numbers
 - objects
-
-Keep the original main design intact.
-
-The target format is an extremely wide advertising layout.
-
-Extend the background naturally toward the LEFT and RIGHT sides.
-
-Continue:
-- background
-- gradients
-- lighting
-- scenery
 - decorative elements
-- textures
-- colors
 
 The central artwork must remain proportional.
 
+The target format is an extremely wide advertising banner.
+
+EXPAND THE ACTUAL DESIGN BACKGROUND NATURALLY.
+
+For an ultra-wide design, extend the composition toward the LEFT and RIGHT.
+
+Continue naturally:
+
+- background
+- colors
+- gradients
+- lighting
+- shadows
+- scenery
+- textures
+- decorative elements
+- architectural elements
+- abstract graphics
+
+The expanded areas must look like they were originally designed as part of the same artwork.
+
+Do NOT create:
+
+- blurred side panels
+- mirrored copies
+- stretched copies
+- duplicate people
+- duplicate products
+- duplicate logos
+- duplicate typography
+- empty white side strips
+- artificial frames
+- visible seams
+- obvious AI extension borders
+
+Do not redesign the central artwork.
+
 Do not crop important content.
 
-Do not redesign the central composition.
+Keep the main subject in the safe central area.
 
-The result should look like a professionally designed
-wide-format advertising banner.
+The final image must look like ONE CONTINUOUS PROFESSIONAL ADVERTISING DESIGN.
 
-The final composition must be suitable for:
+The final output must be suitable for large-format printing at:
+
 ${w} × ${h} ${unit}
-printing.
 
-The image must NOT look stretched.
+The final image must visually match the requested aspect ratio.
+
+NO STRETCHING.
+NO SQUASHING.
+NO DISTORTION.
 `;
 
-    const response = await fetch("/api/edit", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        image,
-        editPrompt: aspectPrompt,
-        designType,
-        targetWidth: w,
-        targetHeight: h,
-        width: w,
-        height: h,
-        unit,
-        style,
-      }),
-    });
+    try {
+      const response = await fetch("/api/edit", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          image,
+          editPrompt: aspectPrompt,
+          designType,
+          targetWidth: w,
+          targetHeight: h,
+          width: w,
+          height: h,
+          unit,
+          style,
+        }),
+      });
 
-    const data = await response.json();
+      const data = await response.json();
 
-    if (!response.ok) {
+      if (!response.ok) {
+        throw new Error(
+          data.error ||
+            "Không thể xử lý tỷ lệ thiết kế."
+        );
+      }
+
+      if (!data.image) {
+        throw new Error(
+          "API không trả về ảnh sau khi xử lý tỷ lệ."
+        );
+      }
+
+      return data.image;
+    } catch (err) {
       throw new Error(
-        data.error ||
-          "Không thể xử lý tỷ lệ thiết kế."
+        err.message ||
+          "Không thể mở rộng thiết kế theo tỷ lệ."
       );
     }
-
-    if (!data.image) {
-      throw new Error(
-        "API không trả về ảnh sau khi xử lý tỷ lệ."
-      );
-    }
-
-    return data.image;
   };
+
+  /*
+   * =====================================================
+   * GENERATE DESIGN
+   * =====================================================
+   */
 
   const handleCreate = async () => {
     if (!toolOn || generating) return;
@@ -184,45 +260,48 @@ The image must NOT look stretched.
     const w = Number(width);
     const h = Number(height);
 
-    if (!w || !h || w <= 0 || h <= 0) {
+    if (
+      !Number.isFinite(w) ||
+      !Number.isFinite(h) ||
+      w <= 0 ||
+      h <= 0
+    ) {
       setError(
         "Vui lòng nhập kích thước W × H hợp lệ."
       );
       return;
     }
 
-    const aspectRatio = w / h;
+    const aspectRatio = getAspectRatio(w, h);
 
     setGenerating(true);
     setGeneratedImage(null);
     setError("");
+    setProcessingStep("AI đang tạo thiết kế...");
 
     try {
       /*
-       * --------------------------------------------------
+       * -------------------------------------------------
        * BƯỚC 1
-       * AI tạo artwork ban đầu
-       * --------------------------------------------------
+       * GENERATE ARTWORK
+       * -------------------------------------------------
        */
 
-      const response = await fetch(
-        "/api/generate",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            designType,
-            width: w,
-            height: h,
-            unit,
-            prompt,
-            style,
-            aspectRatio,
-          }),
-        }
-      );
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          designType,
+          width: w,
+          height: h,
+          unit,
+          prompt,
+          style,
+          aspectRatio,
+        }),
+      });
 
       const data = await response.json();
 
@@ -242,11 +321,10 @@ The image must NOT look stretched.
       let finalImage = data.image;
 
       /*
-       * --------------------------------------------------
+       * -------------------------------------------------
        * BƯỚC 2
-       * Nếu tỷ lệ cực rộng / cực cao,
-       * tự động xử lý thêm.
-       * --------------------------------------------------
+       * XỬ LÝ TỶ LỆ THỰC
+       * -------------------------------------------------
        */
 
       if (needsAspectProcessing(w, h)) {
@@ -256,16 +334,21 @@ The image must NOT look stretched.
             w,
             h
           );
+      } else {
+        setProcessingStep(
+          "Hoàn tất thiết kế."
+        );
       }
 
       /*
-       * --------------------------------------------------
+       * -------------------------------------------------
        * BƯỚC 3
-       * Hiển thị ảnh cuối cùng
-       * --------------------------------------------------
+       * HIỂN THỊ ẢNH CUỐI
+       * -------------------------------------------------
        */
 
       setGeneratedImage(finalImage);
+      setProcessingStep("");
 
     } catch (err) {
       console.error(
@@ -277,10 +360,18 @@ The image must NOT look stretched.
         err.message ||
           "Có lỗi xảy ra khi tạo thiết kế."
       );
+
+      setProcessingStep("");
     } finally {
       setGenerating(false);
     }
   };
+
+  /*
+   * =====================================================
+   * EDIT DESIGN
+   * =====================================================
+   */
 
   const handleEdit = async () => {
     if (
@@ -297,6 +388,9 @@ The image must NOT look stretched.
 
     setGenerating(true);
     setError("");
+    setProcessingStep(
+      "AI đang chỉnh sửa thiết kế..."
+    );
 
     try {
       const response = await fetch(
@@ -338,6 +432,7 @@ The image must NOT look stretched.
 
       setGeneratedImage(data.image);
       setEditPrompt("");
+      setProcessingStep("");
 
     } catch (err) {
       console.error(
@@ -349,10 +444,46 @@ The image must NOT look stretched.
         err.message ||
           "Có lỗi xảy ra khi chỉnh sửa."
       );
+
+      setProcessingStep("");
     } finally {
       setGenerating(false);
     }
   };
+
+  /*
+   * =====================================================
+   * ĐỔI KÍCH THƯỚC VỀ MM CHO PDF
+   * =====================================================
+   */
+
+  const getSizeInMM = (value) => {
+    const numericValue = Number(value);
+
+    if (!Number.isFinite(numericValue)) {
+      return 0;
+    }
+
+    if (unit === "mm") {
+      return numericValue;
+    }
+
+    if (unit === "cm") {
+      return numericValue * 10;
+    }
+
+    if (unit === "m") {
+      return numericValue * 1000;
+    }
+
+    return numericValue;
+  };
+
+  /*
+   * =====================================================
+   * DOWNLOAD PNG
+   * =====================================================
+   */
 
   const handleDownloadPNG = () => {
     if (!generatedImage) return;
@@ -363,28 +494,46 @@ The image must NOT look stretched.
     link.href = generatedImage;
 
     link.download =
-      `AI-Design-${designType}-${width}x${height}.png`;
+      `AI-Design-${designType}-${width}x${height}${unit}.png`;
 
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
   };
+
+  /*
+   * =====================================================
+   * DOWNLOAD PDF
+   * =====================================================
+   */
 
   const handleDownloadPDF = () => {
     if (!generatedImage) return;
 
-    const w = Number(width);
-    const h = Number(height);
+    const wMM = getSizeInMM(width);
+    const hMM = getSizeInMM(height);
+
+    if (
+      !wMM ||
+      !hMM
+    ) {
+      setError(
+        "Kích thước PDF không hợp lệ."
+      );
+      return;
+    }
 
     const pdf = new jsPDF({
       orientation:
-        w >= h
+        wMM >= hMM
           ? "landscape"
           : "portrait",
 
       unit: "mm",
 
       format: [
-        w * 10,
-        h * 10,
+        wMM,
+        hMM,
       ],
     });
 
@@ -393,14 +542,20 @@ The image must NOT look stretched.
       "PNG",
       0,
       0,
-      w * 10,
-      h * 10
+      wMM,
+      hMM
     );
 
     pdf.save(
       `AI-Design-${designType}-${width}x${height}-${unit}.pdf`
     );
   };
+
+  /*
+   * =====================================================
+   * APP
+   * =====================================================
+   */
 
   return (
     <div
@@ -447,6 +602,7 @@ The image must NOT look stretched.
             }
           >
             <span></span>
+
             {toolOn
               ? "ON"
               : "OFF"}
@@ -660,12 +816,18 @@ The image must NOT look stretched.
                     {unit}
                   </div>
 
+                  {processingStep && (
+                    <div className="canvas-empty-text">
+                      {processingStep}
+                    </div>
+                  )}
+
                   {needsAspectProcessing(
                     Number(width),
                     Number(height)
                   ) && (
                     <div className="canvas-empty-text">
-                      Đang tối ưu tỷ lệ in...
+                      Tối ưu ảnh theo tỷ lệ in thực tế...
                     </div>
                   )}
 
@@ -779,8 +941,7 @@ The image must NOT look stretched.
                         }
                         onChange={(e) =>
                           setEditPrompt(
-                            e.target
-                              .value
+                            e.target.value
                           )
                         }
                       />
@@ -893,7 +1054,9 @@ The image must NOT look stretched.
               </span>
 
               <strong className="ready">
-                READY
+                {generating
+                  ? "PROCESSING"
+                  : "READY"}
               </strong>
             </div>
 
