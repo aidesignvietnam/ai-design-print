@@ -1,4 +1,3 @@
-```javascript
 import OpenAI from "openai";
 import sharp from "sharp";
 
@@ -6,155 +5,48 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-function classifyLayout(aspectRatio) {
-  if (aspectRatio >= 4) return "ULTRA_WIDE";
-  if (aspectRatio >= 2) return "WIDE";
-  if (aspectRatio >= 1.15) return "LANDSCAPE";
-  if (aspectRatio <= 0.5) return "ULTRA_TALL";
-  if (aspectRatio <= 0.87) return "PORTRAIT";
+function getLayoutType(width, height) {
+  const ratio = width / height;
+
+  if (ratio >= 4) return "ULTRA_WIDE";
+  if (ratio >= 2) return "WIDE";
+  if (ratio <= 0.5) return "ULTRA_TALL";
+  if (ratio <= 0.87) return "PORTRAIT";
+  if (ratio >= 1.15) return "LANDSCAPE";
+
   return "SQUARE";
 }
 
 function getOutputSize(layoutType) {
-  /*
-   * GPT Image có các kích thước chuẩn cho generation.
-   *
-   * Với banner cực rộng:
-   * KHÔNG cố ép model tạo 400:70 trực tiếp ở bước đầu.
-   *
-   * Chúng ta tạo artwork chất lượng cao trước,
-   * sau đó main.jsx -> edit.js sẽ xử lý expansion.
-   */
+  switch (layoutType) {
+    case "ULTRA_TALL":
+    case "PORTRAIT":
+      return "1024x1536";
 
-  if (layoutType === "PORTRAIT" || layoutType === "ULTRA_TALL") {
-    return "1024x1536";
+    case "SQUARE":
+      return "1024x1024";
+
+    case "ULTRA_WIDE":
+    case "WIDE":
+    case "LANDSCAPE":
+    default:
+      return "1536x1024";
   }
-
-  if (layoutType === "SQUARE") {
-    return "1024x1024";
-  }
-
-  return "1536x1024";
 }
 
-function buildLayoutInstruction({
-  layoutType,
-  width,
-  height,
-  unit,
-  aspectRatio,
-}) {
-  if (layoutType === "ULTRA_WIDE") {
-    return `
-SPECIAL FORMAT: ULTRA-WIDE LARGE-FORMAT ADVERTISING BANNER
+async function getImageInfo(base64Image) {
+  const buffer = Buffer.from(base64Image, "base64");
 
-Physical target:
-${width} × ${height} ${unit}
+  const metadata = await sharp(buffer).metadata();
 
-Target aspect ratio:
-${aspectRatio.toFixed(4)}:1
-
-This is an extremely wide physical banner.
-
-The first artwork is an intermediate artwork that will later be
-expanded horizontally by an AI image-editing stage.
-
-IMPORTANT:
-
-- Think like a professional large-format advertising designer.
-- Build a strong central visual composition.
-- Keep the main subject visually clear.
-- Keep important typography and logos inside a safe central zone.
-- Do not put critical information near the extreme left or right edges.
-- Do not create a vertical poster composition.
-- Do not make the central subject extremely tall.
-- Do not stretch or distort people, products, logos or objects.
-- Use a background that can naturally continue horizontally.
-- Use gradients, lighting, walls, scenery, textures, decorative shapes
-  or environmental elements that can be continued naturally.
-- Avoid complicated objects touching the outer edges.
-- Leave visual breathing room around the main subject.
-- The artwork must feel like the central section of a much wider banner.
-- Do not create obvious empty white margins.
-- Do not put important text in the areas that will later be expanded.
-
-The later expansion stage must be able to continue the background
-naturally to the left and right.
-`;
-  }
-
-  if (layoutType === "WIDE") {
-    return `
-SPECIAL FORMAT: WIDE HORIZONTAL PRINT DESIGN
-
-Target physical size:
-${width} × ${height} ${unit}
-
-Target ratio:
-${aspectRatio.toFixed(4)}:1
-
-Create a professional horizontal advertising composition.
-
-Keep:
-- main subject clear
-- typography readable
-- logo protected
-- background visually expandable
-- important information away from extreme edges
-
-Do not distort people, products, logos or text.
-`;
-  }
-
-  if (
-    layoutType === "PORTRAIT" ||
-    layoutType === "ULTRA_TALL"
-  ) {
-    return `
-SPECIAL FORMAT: VERTICAL PRINT DESIGN
-
-Target physical size:
-${width} × ${height} ${unit}
-
-Target ratio:
-${aspectRatio.toFixed(4)}:1
-
-Create a professional vertical advertising composition.
-
-Keep important text, logo and subjects inside a safe central area.
-Do not crop important information.
-Do not distort people or products.
-`;
-  }
-
-  if (layoutType === "LANDSCAPE") {
-    return `
-SPECIAL FORMAT: LANDSCAPE PRINT DESIGN
-
-Target physical size:
-${width} × ${height} ${unit}
-
-Target ratio:
-${aspectRatio.toFixed(4)}:1
-
-Create a professional horizontal advertising composition.
-
-Use balanced spacing and strong visual hierarchy.
-Keep important information away from the extreme edges.
-`;
-  }
-
-  return `
-SPECIAL FORMAT: BALANCED PRINT DESIGN
-
-Target physical size:
-${width} × ${height} ${unit}
-
-Target ratio:
-${aspectRatio.toFixed(4)}:1
-
-Create a balanced professional advertising composition.
-`;
+  return {
+    width: metadata.width || 0,
+    height: metadata.height || 0,
+    ratio:
+      metadata.width && metadata.height
+        ? metadata.width / metadata.height
+        : 0,
+  };
 }
 
 export default async function handler(req, res) {
@@ -167,128 +59,180 @@ export default async function handler(req, res) {
   try {
     const {
       designType = "Backdrop",
-      width = 300,
-      height = 270,
+      width,
+      height,
       unit = "cm",
       prompt = "",
       style = "Hiện đại",
     } = req.body || {};
 
-    const w = Number(width);
-    const h = Number(height);
+    const targetWidth = Number(width);
+    const targetHeight = Number(height);
 
     if (
-      !Number.isFinite(w) ||
-      !Number.isFinite(h) ||
-      w <= 0 ||
-      h <= 0
+      !Number.isFinite(targetWidth) ||
+      !Number.isFinite(targetHeight) ||
+      targetWidth <= 0 ||
+      targetHeight <= 0
     ) {
       return res.status(400).json({
         error: "Kích thước thiết kế không hợp lệ.",
       });
     }
 
-    const aspectRatio = w / h;
+    const targetRatio = targetWidth / targetHeight;
 
-    const layoutType = classifyLayout(aspectRatio);
+    const layoutType = getLayoutType(
+      targetWidth,
+      targetHeight
+    );
 
     const outputSize = getOutputSize(layoutType);
 
-    const layoutInstruction = buildLayoutInstruction({
-      layoutType,
-      width: w,
-      height: h,
-      unit,
-      aspectRatio,
-    });
+    /*
+     * SPECIAL FORMAT:
+     * ULTRA-WIDE LARGE-FORMAT ADVERTISING BANNER
+     *
+     * Với những thiết kế như 400 x 70 cm,
+     * AI sẽ tạo artwork trung gian trước.
+     *
+     * Sau đó /api/edit sẽ mở rộng artwork
+     * thành đúng tỷ lệ in thực tế.
+     */
+
+    let formatInstruction = "";
+
+    if (layoutType === "ULTRA_WIDE") {
+      formatInstruction = `
+SPECIAL FORMAT: ULTRA-WIDE LARGE-FORMAT ADVERTISING BANNER
+
+The requested document is extremely wide.
+
+TARGET DOCUMENT:
+${targetWidth} × ${targetHeight} ${unit}
+
+TARGET RATIO:
+${targetRatio.toFixed(4)} : 1
+
+Create the main artwork as a professional advertising composition
+with the important visual elements concentrated in a safe central area.
+
+IMPORTANT:
+
+- Do not place critical text near the extreme left or right edges.
+- Do not stretch people or products.
+- Do not distort logos.
+- Do not create extremely small typography.
+- Leave visual background areas that can naturally continue outward.
+- The background must be expandable later by an AI outpainting process.
+- Keep the composition visually balanced.
+- Do not add random text.
+- Do not add watermarks.
+
+The artwork is an intermediate design that will later be expanded
+to the final ultra-wide print ratio.
+`;
+    } else if (layoutType === "WIDE") {
+      formatInstruction = `
+WIDE ADVERTISING FORMAT
+
+TARGET DOCUMENT:
+${targetWidth} × ${targetHeight} ${unit}
+
+TARGET RATIO:
+${targetRatio.toFixed(4)} : 1
+
+Create a balanced wide advertising composition.
+
+Keep important typography, logos, people and products away from
+the extreme edges so the composition remains safe for printing.
+`;
+    } else if (layoutType === "ULTRA_TALL") {
+      formatInstruction = `
+ULTRA-TALL PRINT FORMAT
+
+TARGET DOCUMENT:
+${targetWidth} × ${targetHeight} ${unit}
+
+TARGET RATIO:
+${targetRatio.toFixed(4)} : 1
+
+Create a vertical advertising composition with a strong central hierarchy.
+`;
+    } else {
+      formatInstruction = `
+STANDARD PRINT FORMAT
+
+TARGET DOCUMENT:
+${targetWidth} × ${targetHeight} ${unit}
+
+TARGET RATIO:
+${targetRatio.toFixed(4)} : 1
+
+Create a professional advertising composition suitable for large-format
+printing.
+`;
+    }
 
     const designPrompt = `
-You are the professional advertising design engine
-inside AI DESIGN PRINT.
+You are a professional advertising graphic designer.
 
-Create a polished commercial advertising artwork intended
-for professional large-format printing.
+Create a high-quality commercial advertising artwork.
 
 DESIGN TYPE:
 ${designType}
 
-PHYSICAL SIZE:
-${w} × ${h} ${unit}
-
-TARGET ASPECT RATIO:
-${aspectRatio.toFixed(4)}:1
+SIZE:
+${targetWidth} × ${targetHeight} ${unit}
 
 STYLE:
 ${style}
 
-USER CONTENT:
-${prompt || "Create an attractive professional advertising design suitable for printing."}
+USER BRIEF:
+${prompt}
 
-${layoutInstruction}
+${formatInstruction}
 
-PROFESSIONAL DESIGN REQUIREMENTS:
+GENERAL DESIGN REQUIREMENTS:
 
-1. Create a real advertising composition, not generic artwork.
-2. Make the main visual immediately understandable.
-3. Use strong visual hierarchy.
-4. Make typography clean and readable.
-5. Use professional spacing and alignment.
-6. Keep important information visually protected.
-7. Do not overcrowd the design.
-8. Do not add irrelevant objects.
-9. Do not distort people.
-10. Do not distort products.
-11. Do not distort logos.
-12. Do not create unreadable fake text.
-13. Do not put important text directly against an edge.
-14. Avoid unnecessary frames around the entire artwork.
-15. Use professional commercial color relationships.
-16. Design for large-format printing and viewing from a distance.
-17. Keep the artwork visually polished and production-oriented.
+- Professional advertising design
+- Strong visual hierarchy
+- Clean composition
+- High visual impact
+- Suitable for commercial printing
+- Professional typography
+- Good spacing
+- Clear focal point
+- Balanced colors
+- No unnecessary objects
+- No random text
+- No watermark
+- No distorted people
+- No distorted products
+- No distorted logos
 
-IMPORTANT IMAGE-COMPOSITION RULE:
+The final artwork must look professionally designed rather than like
+a generic AI image.
 
-For extreme aspect ratios, especially ULTRA_WIDE,
-this image is an INTERMEDIATE ARTWORK.
+IMPORTANT:
+This is the first stage of a two-stage design pipeline.
 
-The next stage of AI DESIGN PRINT will expand the artwork
-to the user's exact physical aspect ratio.
+For extreme aspect ratios, create a strong central composition with
+background elements that can be naturally expanded later.
 
-Therefore:
-
-- Preserve a strong central composition.
-- Preserve the identity of the requested design.
-- Make the background visually continuous.
-- Avoid critical information at the far left and right.
-- Avoid hard borders at the left and right.
-- Avoid a composition that would look broken if extended horizontally.
-- Do not create a white frame.
-- Do not create a fake blank canvas.
-- Do not compress the entire requested design into a small object.
-
-The result must look like a professional advertising design
-created by a human graphic designer.
-
-Generate the best possible artwork.
+Do NOT attempt to squeeze the entire ultra-wide document into a normal
+image ratio.
 `;
 
-    console.log("AI DESIGN PRINT GENERATE:", {
+    console.log("GENERATE REQUEST", {
       designType,
-      width: w,
-      height: h,
+      targetWidth,
+      targetHeight,
       unit,
-      style,
-      aspectRatio,
+      targetRatio,
       layoutType,
       outputSize,
     });
-
-    /*
-     * Generation stage.
-     *
-     * We deliberately use a strong standard generation canvas.
-     * Extreme aspect-ratio expansion is handled by edit.js.
-     */
 
     const response = await openai.images.generate({
       model: "gpt-image-2",
@@ -297,93 +241,60 @@ Generate the best possible artwork.
       quality: "high",
     });
 
-    const imageBase64 = response.data?.[0]?.b64_json;
+    const resultBase64 =
+      response?.data?.[0]?.b64_json;
 
-    if (!imageBase64) {
+    if (!resultBase64) {
       throw new Error(
-        "OpenAI không trả về dữ liệu ảnh."
+        "AI không trả về dữ liệu hình ảnh."
       );
     }
 
-    const imageBuffer = Buffer.from(
-      imageBase64,
-      "base64"
-    );
+    const imageInfo =
+      await getImageInfo(resultBase64);
 
-    const metadata = await sharp(imageBuffer).metadata();
-
-    const sourceWidth = metadata.width || 0;
-    const sourceHeight = metadata.height || 0;
-
-    if (!sourceWidth || !sourceHeight) {
-      throw new Error(
-        "Không đọc được kích thước ảnh AI."
-      );
-    }
-
-    const sourceAspectRatio =
-      sourceWidth / sourceHeight;
+    const requiresAspectProcessing =
+      layoutType === "ULTRA_WIDE" ||
+      layoutType === "WIDE" ||
+      layoutType === "ULTRA_TALL";
 
     const ratioDifference =
-      Math.abs(sourceAspectRatio - aspectRatio) /
-      aspectRatio;
-
-    /*
-     * Chúng ta KHÔNG sửa méo ảnh tại đây.
-     *
-     * Nếu tỷ lệ không giống target:
-     * main.jsx sẽ chuyển ảnh sang edit.js
-     * khi đây là tỷ lệ cực rộng/cực cao.
-     */
-
-    console.log("AI DESIGN PRINT GENERATED IMAGE:", {
-      sourceWidth,
-      sourceHeight,
-      sourceAspectRatio,
-      targetWidth: w,
-      targetHeight: h,
-      targetAspectRatio: aspectRatio,
-      ratioDifference,
-      layoutType,
-    });
+      targetRatio > 0 && imageInfo.ratio > 0
+        ? Math.abs(imageInfo.ratio - targetRatio) /
+          targetRatio
+        : 0;
 
     return res.status(200).json({
-      image: `data:image/png;base64,${imageBase64}`,
+      image: `data:image/png;base64,${resultBase64}`,
 
-      width: w,
-      height: h,
+      width: targetWidth,
+      height: targetHeight,
       unit,
 
-      aspectRatio,
+      aspectRatio: targetRatio,
+
       layoutType,
 
-      sourceWidth,
-      sourceHeight,
-      sourceAspectRatio,
+      sourceWidth: imageInfo.width,
+      sourceHeight: imageInfo.height,
+      sourceAspectRatio: imageInfo.ratio,
 
       outputSize,
 
-      requiresAspectProcessing:
-        layoutType === "ULTRA_WIDE" ||
-        layoutType === "WIDE" ||
-        layoutType === "ULTRA_TALL",
+      requiresAspectProcessing,
 
       ratioDifference,
 
       pipeline:
-        "AI generation → aspect-ratio expansion → final artwork",
+        "GENERATE_INTERMEDIATE_ARTWORK_THEN_AI_ASPECT_EXPANSION",
     });
   } catch (error) {
-    console.error(
-      "AI DESIGN PRINT GENERATE ERROR:",
-      error
-    );
+    console.error("GENERATE API ERROR:", error);
 
     return res.status(500).json({
       error:
         error?.message ||
-        "Không thể tạo thiết kế AI.",
+        "Không thể tạo thiết kế.",
     });
   }
 }
-```
