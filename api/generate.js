@@ -34,12 +34,23 @@ function getLayout(width, height) {
   return "STANDARD";
 }
 
+/*
+ * OpenAI Image API dùng các kích thước ảnh chuẩn.
+ *
+ * Với các banner cực rộng như:
+ * 400 x 70 cm
+ * 500 x 80 cm
+ * 600 x 100 cm
+ *
+ * Không được kéo méo ảnh.
+ *
+ * Ảnh AI ban đầu sẽ được tạo theo landscape
+ * để giữ chất lượng và bố cục chính.
+ *
+ * Phần xử lý thành tỷ lệ in thực tế sẽ được
+ * thực hiện ở bước xử lý ảnh tiếp theo.
+ */
 function getOutputSize(layout) {
-  /*
-   * OpenAI image API hiện dùng các kích thước chuẩn.
-   * Với banner siêu ngang, dùng ảnh landscape
-   * làm artwork chất lượng cao ban đầu.
-   */
   if (layout === "ULTRA_TALL") {
     return "1024x1536";
   }
@@ -68,172 +79,249 @@ function buildPrompt({
 
   if (layout === "ULTRA_WIDE") {
     layoutInstruction = `
-SPECIAL LARGE-FORMAT COMPOSITION:
+ULTRA-WIDE LARGE FORMAT:
 
-The requested physical format is:
+The requested physical size is:
 ${sizeText}
 
-Aspect ratio:
+The requested aspect ratio is:
 ${ratio.toFixed(3)} : 1
 
-This is an EXTREMELY WIDE advertising banner.
+This is a very wide advertising production.
 
-Design it as ONE continuous panoramic composition.
+IMPORTANT:
+The final design concept must be suitable for expansion
+into the requested panoramic format.
 
-CRITICAL COMPOSITION RULES:
+Create ONE continuous advertising scene.
 
-- The main advertising subject must appear ONLY ONCE.
-- Never duplicate the main subject.
-- Never create three repeated panels.
-- Never mirror the main subject.
-- Never tile the composition.
-- Never repeat people.
-- Never repeat products.
-- Never repeat logos.
-- Never repeat the same typography.
-- Never place a duplicate version of the design on the left or right.
+Do NOT create:
+- three panels
+- three separate images
+- repeated sections
+- duplicated people
+- duplicated products
+- duplicated logos
+- duplicated typography
+- mirrored subjects
+- tiled backgrounds
+- collage layouts
+- mockup frames
 
-The main content should be large, clearly visible and visually dominant.
+The main subject must appear ONLY ONCE.
 
-Place the important advertising information inside a strong central safe area.
+Keep the main subject and important advertising information
+together as ONE coherent composition.
 
-Use the left and right areas primarily for:
-- background
-- environmental space
-- gradients
-- decorative elements
+Use natural surrounding background space that can visually
+continue toward the left and right sides.
+
+Suitable surrounding elements include:
+- environment
+- architecture
+- soft gradients
 - lighting
+- decorative shapes
 - textures
-- atmospheric depth
-- supporting visual elements
+- atmospheric effects
+- natural scenery
+- subtle depth
 
-The left and right sides must visually connect to the central composition.
+The composition must look like ONE professionally designed
+large-format advertising banner.
 
-The entire banner must feel like ONE professionally art-directed large-format advertising design.
+Do not make the artwork look like several pictures joined together.
 
-Do not make it look like three images joined together.
+Do not leave large accidental white spaces.
 
-Do not leave empty white areas.
+Do not stretch people.
 
-Do not stretch people or products.
+Do not stretch products.
+
+Do not distort logos.
 
 Do not distort important objects.
 
-The final artwork should be suitable as the master artwork for a very wide printed banner.
+Do not place the design inside a frame.
+
+Generate the FLAT ADVERTISING ARTWORK itself.
 `;
+
   } else if (layout === "WIDE") {
     layoutInstruction = `
 WIDE ADVERTISING FORMAT:
 
-Create one continuous horizontal composition.
+Create ONE continuous horizontal advertising composition.
 
-Keep the main subject visible only once.
+Keep the main subject visible only ONCE.
 
-Use the surrounding horizontal space for background,
-decorative elements and visual breathing room.
+Do not duplicate:
+- people
+- products
+- logos
+- typography
 
-Do not duplicate the main subject or typography.
+Use natural horizontal background space around the main subject.
+
+The composition should feel like one professional advertising banner.
 `;
+
   } else if (layout === "ULTRA_TALL") {
     layoutInstruction = `
-SPECIAL LARGE-FORMAT VERTICAL COMPOSITION:
+ULTRA-TALL LARGE FORMAT:
 
-The requested physical format is:
+The requested physical size is:
 ${sizeText}
+
+The requested aspect ratio is:
+${ratio.toFixed(3)} : 1
 
 Create ONE continuous vertical advertising composition.
 
-The main subject must appear only once.
+The main subject must appear ONLY ONCE.
 
-Do not duplicate people, products, logos or typography.
+Do not duplicate:
+- people
+- products
+- logos
+- typography
 
-Use the upper and lower areas for compatible background,
-lighting, atmosphere and decorative elements.
+Use compatible background, lighting and decorative elements
+above and below the main subject.
 
 Do not create repeated panels.
+
+Do not create a collage.
 `;
+
   } else if (layout === "TALL") {
     layoutInstruction = `
 VERTICAL ADVERTISING FORMAT:
 
-Create one continuous vertical composition.
+Create ONE continuous vertical composition.
 
-Keep the main subject visible only once.
+Keep the main subject visible only ONCE.
 
-Do not duplicate the main subject or typography.
+Do not duplicate the main subject.
+
+Do not duplicate typography.
+
+Use natural vertical background space.
 `;
+
   } else {
     layoutInstruction = `
 STANDARD ADVERTISING FORMAT:
 
-Create one balanced professional composition.
+Create one balanced professional advertising composition.
 
 Keep the main subject clear and visually dominant.
+
+Do not duplicate the main subject.
 `;
   }
 
   return `
-You are an expert professional advertising art director
-specialized in large-format printing.
+You are a senior professional advertising art director
+specialized in commercial advertising and large-format printing.
 
-CREATE A PROFESSIONAL ADVERTISING DESIGN.
+Create the actual FLAT ADVERTISING ARTWORK.
 
 DESIGN TYPE:
 ${designType || "Backdrop"}
 
-PHYSICAL SIZE REQUESTED BY USER:
+REQUESTED PHYSICAL SIZE:
 ${sizeText}
 
-ASPECT RATIO:
+REQUESTED ASPECT RATIO:
 ${ratio.toFixed(3)} : 1
 
-STYLE:
-${style || "Modern"}
+VISUAL STYLE:
+${style || "Hiện đại"}
 
-USER CONTENT:
-${content || "Create a professional advertising composition."}
+USER'S DESIGN BRIEF:
+${content || "Thiết kế quảng cáo chuyên nghiệp."}
 
 ${layoutInstruction}
 
-GENERAL DESIGN REQUIREMENTS:
+PROFESSIONAL DESIGN REQUIREMENTS:
 
-- Professional commercial advertising quality.
-- Strong visual hierarchy.
-- Excellent typography hierarchy.
-- Clear focal point.
-- Good negative space.
-- Balanced composition.
-- High visual impact.
-- Suitable for large-format printing.
-- Use the requested style consistently.
-- Do not create unnecessary objects.
-- Do not create duplicate subjects.
-- Do not add random text.
-- Do not add watermarks.
-- Do not create mockup frames.
-- Do not show the design hanging on a wall.
-- Do not show a computer screen.
-- Generate the actual flat advertising artwork.
+1. Create a polished commercial advertising design.
 
-TEXT REQUIREMENT:
+2. Establish a strong visual hierarchy.
 
-The user's requested wording is the content of the advertisement.
+3. Make the main message easy to read.
 
-Do not invent additional slogans or unrelated wording.
+4. Keep the main visual subject prominent.
 
-Keep the main text readable and visually prominent.
+5. Use professional typography hierarchy.
+
+6. Maintain balanced spacing.
+
+7. Use high-quality visual composition.
+
+8. Make the design appropriate for large-format printing.
+
+9. Keep the requested visual style consistent.
+
+10. Avoid unnecessary objects.
+
+11. Do not add random slogans.
+
+12. Do not add unrelated text.
+
+13. Do not add watermarks.
+
+14. Do not show a computer screen.
+
+15. Do not show a wall mockup.
+
+16. Do not show a billboard mockup.
+
+17. Do not put the artwork inside a physical frame.
+
+18. Generate the actual flat artwork.
+
+TEXT RULES:
+
+The user's supplied content is authoritative.
+
+Use the requested wording.
+
+Do not invent unrelated wording.
+
+Do not add fake company names.
+
+Do not add fake phone numbers.
+
+Do not add fake addresses.
+
+Keep important text readable.
+
+LARGE FORMAT RULE:
+
+The physical dimensions supplied by the user are authoritative.
+
+Do not redesign a very wide banner as a normal poster.
+
+For extremely wide formats, think in terms of a professional
+panoramic advertising environment.
+
+The central subject must remain coherent.
+
+The background should contain natural visual continuation
+space so that the artwork can later be expanded horizontally
+without changing or duplicating the main subject.
 
 IMPORTANT:
 
-The physical dimensions entered by the user are authoritative.
+This is not a mockup.
 
-Do NOT redesign the requested format into a normal poster.
+This is not a presentation.
 
-If the requested format is extremely wide,
-the composition must visibly behave like a panoramic advertising banner.
+This is not three separate designs.
 
-The result should be a single intentional advertising artwork,
-not a repeated or tiled image.
+This is ONE finished advertising artwork.
 `;
 }
 
@@ -302,16 +390,14 @@ export default async function handler(req, res) {
       style,
     });
 
-    const response =
-      await openai.images.generate({
-        model: "gpt-image-2",
-        prompt: designPrompt,
-        size: outputSize,
-        quality: "high",
-      });
+    const response = await openai.images.generate({
+      model: "gpt-image-2",
+      prompt: designPrompt,
+      size: outputSize,
+      quality: "high",
+    });
 
-    const image =
-      response?.data?.[0]?.b64_json;
+    const image = response?.data?.[0]?.b64_json;
 
     if (!image) {
       throw new Error(
@@ -335,15 +421,24 @@ export default async function handler(req, res) {
       outputSize,
 
       designType,
+
       style,
 
+      /*
+       * Báo cho frontend biết đây là định dạng
+       * cần xử lý tỷ lệ đặc biệt ở bước tiếp theo.
+       */
       requiresAspectProcessing:
         layout === "ULTRA_WIDE" ||
         layout === "ULTRA_TALL",
 
+      /*
+       * Phiên bản prompt mới.
+       */
       promptVersion:
-        "AI-DESIGN-PRINT-PANORAMIC-V2",
+        "AI-DESIGN-PRINT-PANORAMIC-V3",
     });
+
   } catch (error) {
     console.error(
       "GENERATE ERROR:",
