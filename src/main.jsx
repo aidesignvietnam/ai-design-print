@@ -61,7 +61,7 @@ function App() {
 
   /*
    * =====================================================
-   * KIỂM TRA TỶ LỆ
+   * TỶ LỆ
    * =====================================================
    */
 
@@ -71,186 +71,24 @@ function App() {
     return Number(w) / Number(h);
   };
 
-  const needsAspectProcessing = (w, h) => {
-    const ratio = getAspectRatio(w, h);
-
-    return ratio >= 2 || ratio <= 0.5;
-  };
-
   /*
    * =====================================================
-   * AI MỞ RỘNG ẢNH THEO TỶ LỆ THỰC
+   * GENERATE DESIGN
+   *
+   * QUAN TRỌNG:
+   *
+   * Không gọi /api/edit nữa.
+   *
+   * Kích thước W × H được gửi trực tiếp cho
+   * /api/generate để AI biết bố cục ngay từ đầu.
    *
    * Ví dụ:
    *
    * 400 × 70 cm
    *
-   * Generate
-   *    ↓
-   * artwork ban đầu
-   *    ↓
-   * /api/edit
-   *    ↓
-   * AI mở rộng nền trái / phải
-   *    ↓
-   * ảnh cuối đúng tỷ lệ
-   * =====================================================
-   */
-
-  const processAspectRatio = async (
-    image,
-    w,
-    h
-  ) => {
-    if (!image) return image;
-
-    if (!needsAspectProcessing(w, h)) {
-      return image;
-    }
-
-    const ratio = getAspectRatio(w, h);
-
-    setProcessingStep(
-      `AI đang mở rộng thiết kế theo tỷ lệ ${w} × ${h} ${unit}...`
-    );
-
-    const aspectPrompt = `
-FINAL PROFESSIONAL ASPECT-RATIO EXPANSION.
-
-TARGET PRINT SIZE:
-${w} × ${h} ${unit}
-
-TARGET ASPECT RATIO:
-${ratio.toFixed(4)}:1
-
-This is a professional large-format advertising design.
-
-The supplied artwork is the original central design.
-
-IMPORTANT:
-
-Preserve the original artwork.
-
-DO NOT stretch the original image.
-
-DO NOT squash the original image.
-
-DO NOT distort:
-
-- people
-- faces
-- bodies
-- products
-- vehicles
-- logos
-- typography
-- letters
-- numbers
-- objects
-- decorative elements
-
-The central artwork must remain proportional.
-
-The target format is an extremely wide advertising banner.
-
-EXPAND THE ACTUAL DESIGN BACKGROUND NATURALLY.
-
-For an ultra-wide design, extend the composition toward the LEFT and RIGHT.
-
-Continue naturally:
-
-- background
-- colors
-- gradients
-- lighting
-- shadows
-- scenery
-- textures
-- decorative elements
-- architectural elements
-- abstract graphics
-
-The expanded areas must look like they were originally designed as part of the same artwork.
-
-Do NOT create:
-
-- blurred side panels
-- mirrored copies
-- stretched copies
-- duplicate people
-- duplicate products
-- duplicate logos
-- duplicate typography
-- empty white side strips
-- artificial frames
-- visible seams
-- obvious AI extension borders
-
-Do not redesign the central artwork.
-
-Do not crop important content.
-
-Keep the main subject in the safe central area.
-
-The final image must look like ONE CONTINUOUS PROFESSIONAL ADVERTISING DESIGN.
-
-The final output must be suitable for large-format printing at:
-
-${w} × ${h} ${unit}
-
-The final image must visually match the requested aspect ratio.
-
-NO STRETCHING.
-NO SQUASHING.
-NO DISTORTION.
-`;
-
-    try {
-      const response = await fetch("/api/edit", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          image,
-          editPrompt: aspectPrompt,
-          designType,
-          targetWidth: w,
-          targetHeight: h,
-          width: w,
-          height: h,
-          unit,
-          style,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(
-          data.error ||
-            "Không thể xử lý tỷ lệ thiết kế."
-        );
-      }
-
-      if (!data.image) {
-        throw new Error(
-          "API không trả về ảnh sau khi xử lý tỷ lệ."
-        );
-      }
-
-      return data.image;
-    } catch (err) {
-      throw new Error(
-        err.message ||
-          "Không thể mở rộng thiết kế theo tỷ lệ."
-      );
-    }
-  };
-
-  /*
-   * =====================================================
-   * GENERATE DESIGN
+   * → ratio 5.714:1
+   * → generate.js nhận biết ULTRA_WIDE
+   * → AI tạo một bố cục duy nhất.
    * =====================================================
    */
 
@@ -277,33 +115,63 @@ NO DISTORTION.
     setGenerating(true);
     setGeneratedImage(null);
     setError("");
-    setProcessingStep("AI đang tạo thiết kế...");
+
+    setProcessingStep(
+      `AI đang thiết kế ${w} × ${h} ${unit}...`
+    );
 
     try {
       /*
        * -------------------------------------------------
-       * BƯỚC 1
-       * GENERATE ARTWORK
+       * GENERATE TRỰC TIẾP
        * -------------------------------------------------
        */
 
-      const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          designType,
-          width: w,
-          height: h,
-          unit,
-          prompt,
-          style,
-          aspectRatio,
-        }),
-      });
+      const response = await fetch(
+        "/api/generate",
+        {
+          method: "POST",
 
-      const data = await response.json();
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            designType,
+            width: w,
+            height: h,
+            unit,
+            prompt,
+            style,
+            aspectRatio,
+          }),
+        }
+      );
+
+      /*
+       * Đọc response an toàn.
+       *
+       * Nếu server có lỗi HTML/plain text,
+       * không còn lỗi:
+       *
+       * Unexpected token 'A'
+       */
+      const responseText =
+        await response.text();
+
+      let data = {};
+
+      try {
+        data = responseText
+          ? JSON.parse(responseText)
+          : {};
+      } catch {
+        throw new Error(
+          responseText ||
+            "Server không trả về dữ liệu JSON hợp lệ."
+        );
+      }
 
       if (!response.ok) {
         throw new Error(
@@ -318,37 +186,29 @@ NO DISTORTION.
         );
       }
 
-      let finalImage = data.image;
-
       /*
        * -------------------------------------------------
-       * BƯỚC 2
-       * XỬ LÝ TỶ LỆ THỰC
+       * HIỂN THỊ TRỰC TIẾP ẢNH AI
+       *
+       * KHÔNG gọi /api/edit.
+       * KHÔNG ghép ảnh.
+       * KHÔNG đặt ảnh gốc lên giữa.
        * -------------------------------------------------
        */
 
-      if (needsAspectProcessing(w, h)) {
-        finalImage =
-          await processAspectRatio(
-            data.image,
-            w,
-            h
-          );
-      } else {
-        setProcessingStep(
-          "Hoàn tất thiết kế."
-        );
-      }
+      setGeneratedImage(data.image);
+
+      setProcessingStep(
+        "Hoàn tất thiết kế."
+      );
 
       /*
-       * -------------------------------------------------
-       * BƯỚC 3
-       * HIỂN THỊ ẢNH CUỐI
-       * -------------------------------------------------
+       * Để người dùng thấy trạng thái hoàn tất
+       * trong thời gian ngắn rồi xóa.
        */
-
-      setGeneratedImage(finalImage);
-      setProcessingStep("");
+      setTimeout(() => {
+        setProcessingStep("");
+      }, 800);
 
     } catch (err) {
       console.error(
@@ -362,6 +222,7 @@ NO DISTORTION.
       );
 
       setProcessingStep("");
+
     } finally {
       setGenerating(false);
     }
@@ -370,6 +231,13 @@ NO DISTORTION.
   /*
    * =====================================================
    * EDIT DESIGN
+   *
+   * Chức năng này vẫn giữ nguyên.
+   *
+   * Nó chỉ chạy khi người dùng chủ động nhập
+   * yêu cầu chỉnh sửa và bấm:
+   *
+   * CHỈNH SỬA THIẾT KẾ
    * =====================================================
    */
 
@@ -388,6 +256,7 @@ NO DISTORTION.
 
     setGenerating(true);
     setError("");
+
     setProcessingStep(
       "AI đang chỉnh sửa thiết kế..."
     );
@@ -397,25 +266,46 @@ NO DISTORTION.
         "/api/edit",
         {
           method: "POST",
+
           headers: {
             "Content-Type":
               "application/json",
           },
+
           body: JSON.stringify({
             image: generatedImage,
+
             editPrompt,
+
             designType,
+
             width: w,
             height: h,
+
             targetWidth: w,
             targetHeight: h,
+
             unit,
             style,
           }),
         }
       );
 
-      const data = await response.json();
+      const responseText =
+        await response.text();
+
+      let data = {};
+
+      try {
+        data = responseText
+          ? JSON.parse(responseText)
+          : {};
+      } catch {
+        throw new Error(
+          responseText ||
+            "Server không trả về dữ liệu JSON hợp lệ."
+        );
+      }
 
       if (!response.ok) {
         throw new Error(
@@ -431,7 +321,9 @@ NO DISTORTION.
       }
 
       setGeneratedImage(data.image);
+
       setEditPrompt("");
+
       setProcessingStep("");
 
     } catch (err) {
@@ -446,6 +338,7 @@ NO DISTORTION.
       );
 
       setProcessingStep("");
+
     } finally {
       setGenerating(false);
     }
@@ -497,7 +390,9 @@ NO DISTORTION.
       `AI-Design-${designType}-${width}x${height}${unit}.png`;
 
     document.body.appendChild(link);
+
     link.click();
+
     document.body.removeChild(link);
   };
 
@@ -513,13 +408,11 @@ NO DISTORTION.
     const wMM = getSizeInMM(width);
     const hMM = getSizeInMM(height);
 
-    if (
-      !wMM ||
-      !hMM
-    ) {
+    if (!wMM || !hMM) {
       setError(
         "Kích thước PDF không hợp lệ."
       );
+
       return;
     }
 
@@ -819,15 +712,6 @@ NO DISTORTION.
                   {processingStep && (
                     <div className="canvas-empty-text">
                       {processingStep}
-                    </div>
-                  )}
-
-                  {needsAspectProcessing(
-                    Number(width),
-                    Number(height)
-                  ) && (
-                    <div className="canvas-empty-text">
-                      Tối ưu ảnh theo tỷ lệ in thực tế...
                     </div>
                   )}
 
