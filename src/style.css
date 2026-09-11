@@ -35,7 +35,9 @@ select:disabled {
   opacity: 0.45;
 }
 
-/* APP */
+/* =========================================================
+   APP
+========================================================= */
 
 .app {
   min-height: 100vh;
@@ -46,10 +48,13 @@ select:disabled {
   flex-direction: column;
 }
 
-/* TOP BAR */
+/* =========================================================
+   TOP BAR
+========================================================= */
 
 .topbar {
   height: 76px;
+  flex-shrink: 0;
   border-bottom: 1px solid #252a34;
   background: rgba(13, 16, 22, 0.96);
   display: flex;
@@ -151,7 +156,9 @@ select:disabled {
   box-shadow: 0 0 10px rgba(69, 230, 163, 0.8);
 }
 
-/* STUDIO */
+/* =========================================================
+   STUDIO
+========================================================= */
 
 .studio {
   flex: 1;
@@ -160,7 +167,9 @@ select:disabled {
   grid-template-columns: 215px minmax(450px, 1fr) 330px;
 }
 
-/* SIDEBAR */
+/* =========================================================
+   LEFT SIDEBAR
+========================================================= */
 
 .sidebar {
   min-height: 0;
@@ -327,7 +336,9 @@ select:disabled {
   font-weight: 800;
 }
 
-/* CANVAS AREA */
+/* =========================================================
+   CANVAS AREA
+========================================================= */
 
 .canvas-area {
   min-width: 0;
@@ -339,6 +350,7 @@ select:disabled {
 
 .canvas-toolbar {
   height: 58px;
+  flex-shrink: 0;
   border-bottom: 1px solid #252a34;
   display: flex;
   align-items: center;
@@ -397,7 +409,9 @@ select:disabled {
   font-weight: 800;
 }
 
-/* CANVAS WORKSPACE */
+/* =========================================================
+   CANVAS WORKSPACE
+========================================================= */
 
 .canvas-workspace {
   position: relative;
@@ -412,29 +426,46 @@ select:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  }
+  padding: 22px 40px;
+}
 
-  .design-canvas {
-  width: min(72%, 720px);
-  aspect-ratio: unset;
+/*
+  CANVAS:
+  - aspect-ratio được lấy từ inline style trong main.jsx
+  - không ép height 100%
+  - không để nội dung chỉnh sửa/download làm canvas bị tràn
+*/
+
+.design-canvas {
+  position: relative;
+  width: min(88%, 900px);
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: 1 / 1;
   background: #f4f5f7;
   border: 1px solid #4b5361;
   box-shadow:
-  0 30px 70px rgba(0, 0, 0, 0.5),
-  0 0 0 8px rgba(0, 0, 0, 0.15);
-  position: relative;
+    0 30px 70px rgba(0, 0, 0, 0.5),
+    0 0 0 8px rgba(0, 0, 0, 0.15);
   overflow: hidden;
-  }
+  flex-shrink: 1;
+}
+
+/* =========================================================
+   EMPTY CANVAS
+========================================================= */
 
 .empty-canvas {
   width: 100%;
   height: 100%;
+  min-height: 120px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   color: #6f7786;
   text-align: center;
+  padding: 20px;
 }
 
 .canvas-icon {
@@ -460,6 +491,8 @@ select:disabled {
   margin-top: 7px;
   color: #969eab;
   font-size: 9px;
+  line-height: 1.5;
+  max-width: 80%;
 }
 
 .canvas-size {
@@ -472,11 +505,129 @@ select:disabled {
   font-weight: 800;
 }
 
-.canvas-image {
+/* =========================================================
+   GENERATED DESIGN
+========================================================= */
+
+.generated-result {
+  position: relative;
   width: 100%;
   height: 100%;
-  object-fit: contain;
+  overflow: hidden;
+  background: #ffffff;
 }
+
+/*
+  Ảnh luôn nằm trong đúng canvas.
+  Không còn height: 100% ở wrapper lồng nhau gây tràn.
+*/
+
+.generated-result .canvas-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  object-position: center;
+}
+
+/* =========================================================
+   DOWNLOAD MENU - GÓC TRÊN BÊN PHẢI
+========================================================= */
+
+.canvas-download-menu {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 20;
+}
+
+.canvas-download-trigger {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  background: rgba(15, 18, 25, 0.82);
+  backdrop-filter: blur(10px);
+  color: #ffffff;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-size: 18px;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease;
+}
+
+.canvas-download-trigger:hover {
+  background: rgba(91, 70, 201, 0.95);
+  transform: translateY(-1px);
+}
+
+.canvas-download-dropdown {
+  position: absolute;
+  top: 42px;
+  right: 0;
+  width: 145px;
+  padding: 6px;
+  border: 1px solid #343b49;
+  border-radius: 10px;
+  background: rgba(17, 20, 27, 0.97);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-5px);
+  transition:
+    opacity 0.16s ease,
+    transform 0.16s ease,
+    visibility 0.16s ease;
+}
+
+.canvas-download-menu:hover .canvas-download-dropdown,
+.canvas-download-menu:focus-within .canvas-download-dropdown {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.canvas-download-dropdown button {
+  width: 100%;
+  min-height: 43px;
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: transparent;
+  color: #dce1ea;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.canvas-download-dropdown button:hover {
+  background: #242938;
+}
+
+.canvas-download-dropdown button span {
+  font-size: 10px;
+  font-weight: 900;
+  color: #ffffff;
+}
+
+.canvas-download-dropdown button small {
+  color: #727b8b;
+  font-size: 7px;
+  font-weight: 800;
+}
+
+/* =========================================================
+   RULERS
+========================================================= */
 
 .canvas-ruler {
   position: absolute;
@@ -484,13 +635,14 @@ select:disabled {
   font-size: 7px;
   font-weight: 800;
   pointer-events: none;
+  z-index: 2;
 }
 
 .canvas-ruler.horizontal {
   left: 50%;
   transform: translateX(-50%);
   top: 8px;
-  width: min(72%, 720px);
+  width: min(88%, 900px);
   display: flex;
   justify-content: space-between;
 }
@@ -505,8 +657,89 @@ select:disabled {
   justify-content: space-between;
 }
 
+/* =========================================================
+   AI EDIT PANEL
+========================================================= */
+
+.edit-design-panel {
+  flex-shrink: 0;
+  min-height: 78px;
+  border-top: 1px solid #252a34;
+  background: #11141b;
+  padding: 10px 14px;
+  display: grid;
+  grid-template-columns: 125px minmax(0, 1fr) 125px;
+  align-items: center;
+  gap: 10px;
+}
+
+.edit-design-label {
+  padding-left: 4px;
+}
+
+.edit-design-label span {
+  display: block;
+  color: #9b8cff;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: 1.4px;
+}
+
+.edit-design-label small {
+  display: block;
+  margin-top: 5px;
+  color: #687182;
+  font-size: 7px;
+  font-weight: 800;
+}
+
+.edit-design-input {
+  width: 100%;
+  min-height: 54px;
+  max-height: 90px;
+  resize: vertical;
+  border: 1px solid #303744;
+  border-radius: 8px;
+  background: #181c24;
+  color: #e6e9ef;
+  outline: none;
+  padding: 10px 11px;
+  line-height: 1.45;
+  font-size: 9px;
+}
+
+.edit-design-input::placeholder {
+  color: #596272;
+}
+
+.edit-design-input:focus {
+  border-color: #7165e8;
+}
+
+.edit-design-button {
+  height: 48px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #725ff1, #5746c9);
+  color: #ffffff;
+  cursor: pointer;
+  font-size: 9px;
+  font-weight: 900;
+  letter-spacing: 0.4px;
+  box-shadow: 0 8px 22px rgba(91, 70, 201, 0.2);
+}
+
+.edit-design-button:hover:not(:disabled) {
+  filter: brightness(1.08);
+  transform: translateY(-1px);
+}
+
+/* =========================================================
+   CANVAS BOTTOM
+========================================================= */
+
 .canvas-bottom {
   height: 47px;
+  flex-shrink: 0;
   border-top: 1px solid #252a34;
   display: flex;
   align-items: center;
@@ -536,7 +769,9 @@ select:disabled {
   color: #45e6a3;
 }
 
-/* PROPERTIES */
+/* =========================================================
+   PROPERTIES
+========================================================= */
 
 .properties {
   min-height: 0;
@@ -601,7 +836,9 @@ select:disabled {
   font-weight: 800;
 }
 
-/* SIZE */
+/* =========================================================
+   SIZE
+========================================================= */
 
 .size-inputs {
   display: grid;
@@ -653,7 +890,9 @@ select:disabled {
   padding-bottom: 12px;
 }
 
-/* PROMPT */
+/* =========================================================
+   PROMPT
+========================================================= */
 
 .ai-prompt {
   width: 100%;
@@ -677,7 +916,9 @@ select:disabled {
   border-color: #7165e8;
 }
 
-/* STYLE */
+/* =========================================================
+   STYLE
+========================================================= */
 
 .style-grid {
   display: grid;
@@ -707,7 +948,9 @@ select:disabled {
   color: #b5adff;
 }
 
-/* GENERATE */
+/* =========================================================
+   GENERATE
+========================================================= */
 
 .generate-button {
   width: 100%;
@@ -725,7 +968,7 @@ select:disabled {
   box-shadow: 0 12px 28px rgba(91, 70, 201, 0.22);
 }
 
-.generate-button:hover {
+.generate-button:hover:not(:disabled) {
   filter: brightness(1.08);
   transform: translateY(-1px);
 }
@@ -754,7 +997,9 @@ select:disabled {
   text-align: right;
 }
 
-/* EXPORT */
+/* =========================================================
+   EXPORT
+========================================================= */
 
 .export-section {
   padding-top: 1px;
@@ -772,6 +1017,13 @@ select:disabled {
   border-radius: 7px;
   background: #181c24;
   color: #6c7585;
+  cursor: pointer;
+}
+
+.export-grid button:not(:disabled):hover {
+  border-color: #7165e8;
+  background: #211e38;
+  color: #b5adff;
 }
 
 .export-grid button strong {
@@ -793,7 +1045,9 @@ select:disabled {
   color: #8275d8;
 }
 
-/* OFF */
+/* =========================================================
+   OFF
+========================================================= */
 
 .tool-off {
   filter: saturate(0.65);
@@ -808,10 +1062,13 @@ select:disabled {
   color: #5b6474;
 }
 
-/* FOOTER */
+/* =========================================================
+   FOOTER
+========================================================= */
 
 .footer {
   height: 30px;
+  flex-shrink: 0;
   padding: 0 18px;
   border-top: 1px solid #252a34;
   background: #0c0f14;
@@ -824,7 +1081,9 @@ select:disabled {
   letter-spacing: 1.2px;
 }
 
-/* RESPONSIVE */
+/* =========================================================
+   RESPONSIVE
+========================================================= */
 
 @media (max-width: 1050px) {
   .studio {
@@ -839,6 +1098,11 @@ select:disabled {
   .properties {
     padding-left: 13px;
     padding-right: 13px;
+  }
+
+  .canvas-workspace {
+    padding-left: 25px;
+    padding-right: 25px;
   }
 }
 
@@ -867,6 +1131,15 @@ select:disabled {
   .ai-status {
     display: none;
   }
+
+  .edit-design-panel {
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
+
+  .edit-design-button {
+    width: 100%;
+  }
 }
 
 @media (max-width: 520px) {
@@ -889,34 +1162,33 @@ select:disabled {
   .export-grid {
     grid-template-columns: repeat(3, 1fr);
   }
-}
-.demo-design {
-  width: 100% !important;
-  height: 100% !important;
-  min-height: 300px !important;
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  background: #ffffff !important;
-  position: relative !important;
-  z-index: 100 !important;
-}
-/* ===== AI DESIGN PRINT - GIỮ ĐÚNG TỶ LỆ CANVAS ===== */
 
-.generated-result {
-  width: 100%;
-  max-width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
+  .canvas-workspace {
+    padding: 15px;
+  }
+
+  .design-canvas {
+    width: 94%;
+  }
+
+  .canvas-download-trigger {
+    width: 32px;
+    height: 32px;
+  }
+
+  .canvas-download-menu {
+    top: 7px;
+    right: 7px;
+  }
 }
 
-.canvas-image {
-  display: block;
-  width: 100%;
-  height: auto;
-  object-fit: contain;
-  object-position: center;
-  max-width: 100%;
-}
+/* =========================================================
+   IMPORTANT:
+   Không dùng các CSS cũ sau:
+   .demo-design
+   .generated-result height: 100% kèm wrapper cũ
+   .generated-image-wrap
+   .canvas-image height: auto ở cuối file
+
+   Các lỗi này đã được loại bỏ trong phiên bản mới.
+========================================================= */
