@@ -1,3 +1,4 @@
+```jsx
 import React, { useState } from "react";
 import { jsPDF } from "jspdf";
 import ReactDOM from "react-dom/client";
@@ -41,27 +42,129 @@ function App() {
     "Sự kiện",
   ];
 
-  const handleUpload = (event) => {
+  /*
+   * =========================================================
+   *  CHUYỂN ẢNH THÀNH DATA URL
+   * =========================================================
+   *
+   * Ảnh được chọn từ máy sẽ được đọc thành:
+   *
+   * data:image/jpeg;base64,...
+   *
+   * Dữ liệu này có thể gửi trực tiếp cho OpenAI API.
+   */
+
+  const readImageAsDataURL = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+
+      reader.onload = () => {
+        resolve(reader.result);
+      };
+
+      reader.onerror = () => {
+        reject(
+          new Error(
+            "Không thể đọc hình ảnh."
+          )
+        );
+      };
+
+      reader.readAsDataURL(file);
+    });
+  };
+
+  /*
+   * =========================================================
+   *  UPLOAD IMAGE
+   * =========================================================
+   */
+
+  const handleUpload = async (event) => {
     const file = event.target.files?.[0];
 
     if (!file) return;
 
-    const imageUrl = URL.createObjectURL(file);
+    if (!file.type.startsWith("image/")) {
+      setError(
+        "Vui lòng chọn file hình ảnh JPG, PNG hoặc WEBP."
+      );
+      return;
+    }
 
-    setUploadedImage(imageUrl);
-    setGeneratedImage(null);
-    setError("");
-    setProcessingStep("");
+    try {
+      setError("");
+      setProcessingStep(
+        "Đang đọc hình ảnh tham khảo..."
+      );
+
+      /*
+       * Tạo URL để hiển thị Preview.
+       */
+      const previewUrl =
+        URL.createObjectURL(file);
+
+      /*
+       * Đọc ảnh thành Data URL để gửi cho AI.
+       */
+      const imageData =
+        await readImageAsDataURL(file);
+
+      setUploadedImage(imageData);
+
+      setGeneratedImage(null);
+      setDesignPlan(null);
+
+      setProcessingStep("");
+
+      /*
+       * Lưu preview URL nếu cần hiển thị.
+       *
+       * Data URL cũng có thể hiển thị trực tiếp,
+       * nên ở đây dùng imageData làm nguồn ảnh.
+       */
+
+      console.log(
+        "Reference image loaded:",
+        file.name,
+        file.type,
+        file.size
+      );
+
+      /*
+       * Giải phóng object URL không còn cần thiết.
+       */
+      URL.revokeObjectURL(previewUrl);
+    } catch (err) {
+      console.error(
+        "UPLOAD IMAGE ERROR:",
+        err
+      );
+
+      setError(
+        err.message ||
+          "Không thể tải hình ảnh."
+      );
+
+      setProcessingStep("");
+    }
   };
 
   const getAspectRatio = (w, h) => {
     if (!w || !h) return 0;
+
     return Number(w) / Number(h);
   };
 
   const needsAspectExpansion = (ratio) => {
     return ratio >= 2.5 || ratio <= 0.7;
   };
+
+  /*
+   * =========================================================
+   *  CREATE DESIGN
+   * =========================================================
+   */
 
   const handleCreate = async () => {
     if (!toolOn || generating) return;
@@ -75,12 +178,20 @@ function App() {
       w <= 0 ||
       h <= 0
     ) {
-      setError("Vui lòng nhập kích thước W × H hợp lệ.");
+      setError(
+        "Vui lòng nhập kích thước W × H hợp lệ."
+      );
+
       return;
     }
 
-    const aspectRatio = getAspectRatio(w, h);
-    const requiresExpansion = needsAspectExpansion(aspectRatio);
+    const aspectRatio =
+      getAspectRatio(w, h);
+
+    const requiresExpansion =
+      needsAspectExpansion(
+        aspectRatio
+      );
 
     setGenerating(true);
     setGeneratedImage(null);
@@ -88,37 +199,54 @@ function App() {
     setError("");
 
     setProcessingStep(
-      "AI ART DIRECTOR đang phân tích yêu cầu..."
+      uploadedImage
+        ? "AI đang phân tích ảnh tham khảo..."
+        : "AI ART DIRECTOR đang phân tích yêu cầu..."
     );
 
     try {
-      /* =====================================================
-         STEP 1 - AI ART DIRECTOR
-      ===================================================== */
+      /*
+       * =====================================================
+       *  STEP 1 — AI ART DIRECTOR
+       * =====================================================
+       */
 
-      const planResponse = await fetch("/api/plan", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          designType,
-          width: w,
-          height: h,
-          unit,
-          prompt,
-          style,
-          aspectRatio,
-          uploadedImage: Boolean(uploadedImage),
-        }),
-      });
+      const planResponse =
+        await fetch("/api/plan", {
+          method: "POST",
 
-      const planText = await planResponse.text();
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            designType,
+            width: w,
+            height: h,
+            unit,
+            prompt,
+            style,
+            aspectRatio,
+
+            /*
+             * QUAN TRỌNG:
+             * Gửi ảnh thật.
+             */
+            uploadedImage:
+              uploadedImage || null,
+          }),
+        });
+
+      const planText =
+        await planResponse.text();
 
       let planData = {};
 
       try {
-        planData = planText ? JSON.parse(planText) : {};
+        planData = planText
+          ? JSON.parse(planText)
+          : {};
       } catch {
         throw new Error(
           planText ||
@@ -139,39 +267,65 @@ function App() {
         );
       }
 
-      const currentDesignPlan = planData.designPlan;
+      const currentDesignPlan =
+        planData.designPlan;
 
-      setDesignPlan(currentDesignPlan);
-
-      setProcessingStep(
-        `AI đang tạo concept: ${
-          currentDesignPlan.concept ||
-          "thiết kế phù hợp yêu cầu"
-        }`
+      setDesignPlan(
+        currentDesignPlan
       );
 
-      /* =====================================================
-         STEP 2 - GENERATE DESIGN
-      ===================================================== */
+      setProcessingStep(
+        uploadedImage
+          ? `AI đã phân tích ảnh mẫu. Đang tạo concept: ${
+              currentDesignPlan.concept ||
+              "thiết kế phù hợp"
+            }`
+          : `AI đang tạo concept: ${
+              currentDesignPlan.concept ||
+              "thiết kế phù hợp yêu cầu"
+            }`
+      );
 
-      const generateResponse = await fetch("/api/generate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          designType,
-          width: w,
-          height: h,
-          unit,
-          prompt,
-          style,
-          aspectRatio,
-          designPlan: currentDesignPlan,
-        }),
-      });
+      /*
+       * =====================================================
+       *  STEP 2 — AI GENERATOR
+       * =====================================================
+       */
 
-      const generateText = await generateResponse.text();
+      const generateResponse =
+        await fetch("/api/generate", {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            designType,
+            width: w,
+            height: h,
+            unit,
+            prompt,
+            style,
+            aspectRatio,
+
+            /*
+             * Gửi Design Plan.
+             */
+            designPlan:
+              currentDesignPlan,
+
+            /*
+             * Gửi luôn ảnh tham khảo.
+             */
+            uploadedImage:
+              uploadedImage || null,
+          }),
+        });
+
+      const generateText =
+        await generateResponse.text();
 
       let generateData = {};
 
@@ -194,42 +348,60 @@ function App() {
       }
 
       if (!generateData.image) {
-        throw new Error("AI không trả về hình ảnh.");
+        throw new Error(
+          "AI không trả về hình ảnh."
+        );
       }
 
-      let finalImage = generateData.image;
+      let finalImage =
+        generateData.image;
 
-      /* =====================================================
-         STEP 3 - EXPAND WIDE / TALL DESIGN
-      ===================================================== */
+      /*
+       * =====================================================
+       *  STEP 3 — EXPAND WIDE / TALL DESIGN
+       * =====================================================
+       */
 
       if (requiresExpansion) {
         setProcessingStep(
           `AI đang mở rộng thiết kế theo đúng bố cục ${w} × ${h} ${unit}...`
         );
 
-        const editResponse = await fetch("/api/edit", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            image: finalImage,
-            editPrompt:
-              "Mở rộng thiết kế theo đúng tỷ lệ kích thước yêu cầu và theo Design Plan. Giữ nguyên hierarchy, chủ thể chính, phong cách, màu sắc và nội dung quan trọng. Không nhân đôi người, sản phẩm, logo hoặc chữ. Không tạo bố cục 3 panel. Không biến thiết kế thành một cụm nhỏ ở giữa. Chỉ mở rộng nền, môi trường và các visual phụ một cách tự nhiên để tận dụng toàn bộ canvas.",
-            content: prompt,
-            designType,
-            width: w,
-            height: h,
-            targetWidth: w,
-            targetHeight: h,
-            unit,
-            style,
-            designPlan: currentDesignPlan,
-          }),
-        });
+        const editResponse =
+          await fetch("/api/edit", {
+            method: "POST",
 
-        const editText = await editResponse.text();
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body: JSON.stringify({
+              image: finalImage,
+
+              editPrompt:
+                "Mở rộng thiết kế theo đúng tỷ lệ kích thước yêu cầu và theo Design Plan. Giữ nguyên hierarchy, chủ thể chính, phong cách, màu sắc và nội dung quan trọng. Không nhân đôi người, sản phẩm, logo hoặc chữ. Không tạo bố cục 3 panel. Không biến thiết kế thành một cụm nhỏ ở giữa. Chỉ mở rộng nền, môi trường và các visual phụ một cách tự nhiên để tận dụng toàn bộ canvas.",
+
+              content: prompt,
+
+              designType,
+
+              width: w,
+              height: h,
+
+              targetWidth: w,
+              targetHeight: h,
+
+              unit,
+              style,
+
+              designPlan:
+                currentDesignPlan,
+            }),
+          });
+
+        const editText =
+          await editResponse.text();
 
         let editData = {};
 
@@ -257,14 +429,19 @@ function App() {
           );
         }
 
-        finalImage = editData.image;
+        finalImage =
+          editData.image;
       }
 
-      /* =====================================================
-         FINISH
-      ===================================================== */
+      /*
+       * =====================================================
+       *  HIỂN THỊ KẾT QUẢ
+       * =====================================================
+       */
 
-      setGeneratedImage(finalImage);
+      setGeneratedImage(
+        finalImage
+      );
 
       setProcessingStep(
         requiresExpansion
@@ -276,7 +453,10 @@ function App() {
         setProcessingStep("");
       }, 1000);
     } catch (err) {
-      console.error("CREATE ERROR:", err);
+      console.error(
+        "CREATE ERROR:",
+        err
+      );
 
       setError(
         err.message ||
@@ -289,9 +469,11 @@ function App() {
     }
   };
 
-  /* =========================================================
-     AI EDIT
-  ========================================================= */
+  /*
+   * =========================================================
+   *  AI EDIT
+   * =========================================================
+   */
 
   const handleEdit = async () => {
     if (
@@ -314,26 +496,49 @@ function App() {
     );
 
     try {
-      const response = await fetch("/api/edit", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          image: generatedImage,
-          editPrompt,
-          content: prompt,
-          designType,
-          width: w,
-          height: h,
-          targetWidth: w,
-          targetHeight: h,
-          unit,
-          style,
-        }),
-      });
+      const response =
+        await fetch("/api/edit", {
+          method: "POST",
 
-      const responseText = await response.text();
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            image:
+              generatedImage,
+
+            editPrompt,
+
+            content:
+              prompt,
+
+            designType,
+
+            width: w,
+            height: h,
+
+            targetWidth: w,
+            targetHeight: h,
+
+            unit,
+            style,
+
+            /*
+             * Nếu có ảnh tham khảo,
+             * gửi lại để giữ đúng ngữ cảnh.
+             */
+            uploadedImage:
+              uploadedImage || null,
+
+            designPlan:
+              designPlan || null,
+          }),
+        });
+
+      const responseText =
+        await response.text();
 
       let data = {};
 
@@ -361,11 +566,18 @@ function App() {
         );
       }
 
-      setGeneratedImage(data.image);
+      setGeneratedImage(
+        data.image
+      );
+
       setEditPrompt("");
+
       setProcessingStep("");
     } catch (err) {
-      console.error("EDIT ERROR:", err);
+      console.error(
+        "EDIT ERROR:",
+        err
+      );
 
       setError(
         err.message ||
@@ -378,14 +590,21 @@ function App() {
     }
   };
 
-  /* =========================================================
-     PDF
-  ========================================================= */
+  /*
+   * =========================================================
+   *  PDF / PNG
+   * =========================================================
+   */
 
   const getSizeInMM = (value) => {
-    const numericValue = Number(value);
+    const numericValue =
+      Number(value);
 
-    if (!Number.isFinite(numericValue)) {
+    if (
+      !Number.isFinite(
+        numericValue
+      )
+    ) {
       return 0;
     }
 
@@ -404,50 +623,62 @@ function App() {
     return numericValue;
   };
 
-  /* =========================================================
-     DOWNLOAD PNG
-  ========================================================= */
-
   const handleDownloadPNG = () => {
     if (!generatedImage) return;
 
-    const link = document.createElement("a");
+    const link =
+      document.createElement(
+        "a"
+      );
 
-    link.href = generatedImage;
+    link.href =
+      generatedImage;
 
     link.download =
       `AI-Design-${designType}-${width}x${height}${unit}.png`;
 
-    document.body.appendChild(link);
+    document.body.appendChild(
+      link
+    );
 
     link.click();
 
-    document.body.removeChild(link);
+    document.body.removeChild(
+      link
+    );
   };
-
-  /* =========================================================
-     DOWNLOAD PDF
-  ========================================================= */
 
   const handleDownloadPDF = () => {
     if (!generatedImage) return;
 
-    const wMM = getSizeInMM(width);
-    const hMM = getSizeInMM(height);
+    const wMM =
+      getSizeInMM(width);
+
+    const hMM =
+      getSizeInMM(height);
 
     if (!wMM || !hMM) {
-      setError("Kích thước PDF không hợp lệ.");
+      setError(
+        "Kích thước PDF không hợp lệ."
+      );
+
       return;
     }
 
-    const pdf = new jsPDF({
-      orientation:
-        wMM >= hMM
-          ? "landscape"
-          : "portrait",
-      unit: "mm",
-      format: [wMM, hMM],
-    });
+    const pdf =
+      new jsPDF({
+        orientation:
+          wMM >= hMM
+            ? "landscape"
+            : "portrait",
+
+        unit: "mm",
+
+        format: [
+          wMM,
+          hMM,
+        ],
+      });
 
     pdf.addImage(
       generatedImage,
@@ -463,20 +694,14 @@ function App() {
     );
   };
 
-  /* =========================================================
-     RENDER
-  ========================================================= */
-
   return (
     <div
       className={`app ${
-        toolOn ? "" : "tool-off"
+        toolOn
+          ? ""
+          : "tool-off"
       }`}
     >
-      {/* =====================================================
-          TOP BAR
-      ===================================================== */}
-
       <header className="topbar">
         <div className="logo-area">
           <div className="logo-mark">
@@ -502,58 +727,75 @@ function App() {
 
           <button
             className={`power-switch ${
-              toolOn ? "active" : ""
+              toolOn
+                ? "active"
+                : ""
             }`}
             onClick={() =>
-              setToolOn(!toolOn)
+              setToolOn(
+                !toolOn
+              )
             }
           >
             <span></span>
-            {toolOn ? "ON" : "OFF"}
+
+            {toolOn
+              ? "ON"
+              : "OFF"}
           </button>
         </div>
       </header>
 
-      {/* =====================================================
-          STUDIO
-      ===================================================== */}
-
       <div className="studio">
-
-        {/* ===================================================
-            LEFT SIDEBAR
-        =================================================== */}
-
         <aside className="sidebar">
-
           <div className="sidebar-heading">
-            <span>CREATE</span>
-            <small>01</small>
+            <span>
+              CREATE
+            </span>
+
+            <small>
+              01
+            </small>
           </div>
 
           <div className="tool-list">
             {designTypes.map(
-              (type, index) => (
+              (
+                type,
+                index
+              ) => (
                 <button
-                  key={type}
+                  key={
+                    type
+                  }
                   className={`tool-item ${
-                    designType === type
+                    designType ===
+                    type
                       ? "selected"
                       : ""
                   }`}
                   onClick={() =>
-                    setDesignType(type)
+                    setDesignType(
+                      type
+                    )
                   }
-                  disabled={!toolOn}
+                  disabled={
+                    !toolOn
+                  }
                 >
                   <span className="tool-number">
-                    {String(index + 1).padStart(
+                    {String(
+                      index +
+                        1
+                    ).padStart(
                       2,
                       "0"
                     )}
                   </span>
 
-                  <span>{type}</span>
+                  <span>
+                    {type}
+                  </span>
                 </button>
               )
             )}
@@ -562,17 +804,25 @@ function App() {
           <div className="sidebar-divider"></div>
 
           <div className="sidebar-heading">
-            <span>ASSETS</span>
-            <small>02</small>
+            <span>
+              ASSETS
+            </span>
+
+            <small>
+              02
+            </small>
           </div>
 
           <label className="upload-button">
-
             <input
               type="file"
-              accept="image/*"
-              onChange={handleUpload}
-              disabled={!toolOn}
+              accept="image/jpeg,image/png,image/webp,image/jpg"
+              onChange={
+                handleUpload
+              }
+              disabled={
+                !toolOn
+              }
             />
 
             <span className="upload-symbol">
@@ -585,17 +835,18 @@ function App() {
               </strong>
 
               <small>
-                PNG / JPG / WEBP
+                JPG / PNG / WEBP
               </small>
             </span>
-
           </label>
 
           {uploadedImage && (
             <div className="asset-preview">
               <img
-                src={uploadedImage}
-                alt="Uploaded asset"
+                src={
+                  uploadedImage
+                }
+                alt="Reference"
               />
             </div>
           )}
@@ -609,21 +860,14 @@ function App() {
               VERSION 1.0 PRO
             </div>
           </div>
-
         </aside>
 
-        {/* ===================================================
-            CENTER CANVAS
-        =================================================== */}
-
         <main className="canvas-area">
-
-          {/* CANVAS TOOLBAR */}
-
           <div className="canvas-toolbar">
-
             <div className="canvas-title">
-              <span>CANVAS</span>
+              <span>
+                CANVAS
+              </span>
 
               <strong>
                 {designType}
@@ -631,7 +875,6 @@ function App() {
             </div>
 
             <div className="canvas-tools">
-
               <button title="Undo">
                 ↶
               </button>
@@ -653,54 +896,82 @@ function App() {
               <button title="Zoom in">
                 +
               </button>
-
             </div>
-
           </div>
 
-          {/* =================================================
-              CANVAS WORKSPACE
-          ================================================= */}
-
           <div className="canvas-workspace">
-
             <div className="canvas-ruler horizontal">
-              <span>0</span>
-              <span>50</span>
-              <span>100</span>
-              <span>150</span>
-              <span>200</span>
-              <span>250</span>
-              <span>300</span>
+              <span>
+                0
+              </span>
+
+              <span>
+                50
+              </span>
+
+              <span>
+                100
+              </span>
+
+              <span>
+                150
+              </span>
+
+              <span>
+                200
+              </span>
+
+              <span>
+                250
+              </span>
+
+              <span>
+                300
+              </span>
             </div>
 
             <div className="canvas-ruler vertical">
-              <span>0</span>
-              <span>50</span>
-              <span>100</span>
-              <span>150</span>
-              <span>200</span>
-              <span>250</span>
+              <span>
+                0
+              </span>
+
+              <span>
+                50
+              </span>
+
+              <span>
+                100
+              </span>
+
+              <span>
+                150
+              </span>
+
+              <span>
+                200
+              </span>
+
+              <span>
+                250
+              </span>
             </div>
 
             <div
               className="design-canvas"
               style={{
                 aspectRatio: `${
-                  Number(width) || 300
+                  Number(
+                    width
+                  ) || 300
                 } / ${
-                  Number(height) || 270
+                  Number(
+                    height
+                  ) || 270
                 }`,
               }}
             >
-
-              {/* ===========================================
-                  GENERATING
-              =========================================== */}
-
               {generating ? (
                 <div className="empty-canvas">
-
                   <div className="canvas-icon">
                     ✦
                   </div>
@@ -711,27 +982,24 @@ function App() {
 
                   <div className="canvas-empty-text">
                     AI đang thiết kế{" "}
-                    {designType}{" "}
-                    {width} × {height}{" "}
+                    {
+                      designType
+                    }{" "}
+                    {width} ×{" "}
+                    {height}{" "}
                     {unit}
                   </div>
 
                   {processingStep && (
                     <div className="canvas-empty-text">
-                      {processingStep}
+                      {
+                        processingStep
+                      }
                     </div>
                   )}
-
                 </div>
-
               ) : error ? (
-
-                /* =========================================
-                   ERROR
-                ========================================= */
-
                 <div className="empty-canvas">
-
                   <div className="canvas-icon">
                     !
                   </div>
@@ -743,27 +1011,18 @@ function App() {
                   <div className="canvas-empty-text">
                     {error}
                   </div>
-
                 </div>
-
               ) : generatedImage ? (
-
-                /* =========================================
-                   GENERATED IMAGE
-                ========================================= */
-
                 <div className="generated-result">
-
                   <img
-                    src={generatedImage}
+                    src={
+                      generatedImage
+                    }
                     className="canvas-image"
                     alt="AI generated design"
                   />
 
-                  {/* DOWNLOAD MENU */}
-
                   <div className="canvas-download-menu">
-
                     <button
                       className="canvas-download-trigger"
                       title="Tải xuống"
@@ -772,7 +1031,6 @@ function App() {
                     </button>
 
                     <div className="canvas-download-dropdown">
-
                       <button
                         onClick={
                           handleDownloadPNG
@@ -800,33 +1058,19 @@ function App() {
                           IN ẤN
                         </small>
                       </button>
-
                     </div>
-
                   </div>
-
                 </div>
-
               ) : uploadedImage ? (
-
-                /* =========================================
-                   UPLOADED IMAGE
-                ========================================= */
-
                 <img
-                  src={uploadedImage}
+                  src={
+                    uploadedImage
+                  }
                   className="canvas-image"
-                  alt="Uploaded design"
+                  alt="Reference design"
                 />
-
               ) : (
-
-                /* =========================================
-                   EMPTY CANVAS
-                ========================================= */
-
                 <div className="empty-canvas">
-
                   <div className="canvas-icon">
                     ✦
                   </div>
@@ -840,24 +1084,20 @@ function App() {
                   </div>
 
                   <div className="canvas-size">
-                    {width || "300"} ×{" "}
-                    {height || "270"}{" "}
+                    {width ||
+                      "300"}{" "}
+                    ×{" "}
+                    {height ||
+                      "270"}{" "}
                     {unit}
                   </div>
-
                 </div>
               )}
-
             </div>
           </div>
 
-          {/* =================================================
-              AI EDIT PANEL
-          ================================================= */}
-
           {generatedImage && (
             <div className="edit-design-panel">
-
               <div className="edit-design-label">
                 <span>
                   AI EDIT
@@ -872,18 +1112,27 @@ function App() {
                 className="edit-design-input"
                 placeholder="Nhập yêu cầu chỉnh sửa thiết kế..."
                 rows="2"
-                value={editPrompt}
-                onChange={(e) =>
+                value={
+                  editPrompt
+                }
+                onChange={(
+                  e
+                ) =>
                   setEditPrompt(
-                    e.target.value
+                    e.target
+                      .value
                   )
                 }
-                disabled={!toolOn}
+                disabled={
+                  !toolOn
+                }
               />
 
               <button
                 className="edit-design-button"
-                onClick={handleEdit}
+                onClick={
+                  handleEdit
+                }
                 disabled={
                   !toolOn ||
                   !editPrompt.trim() ||
@@ -894,24 +1143,21 @@ function App() {
                   ? "ĐANG XỬ LÝ..."
                   : "✦ CHỈNH SỬA"}
               </button>
-
             </div>
           )}
 
-          {/* =================================================
-              CANVAS BOTTOM
-          ================================================= */}
-
           <div className="canvas-bottom">
-
             <div>
               <span>
                 DOCUMENT
               </span>
 
               <strong>
-                {width || "--"} ×{" "}
-                {height || "--"}{" "}
+                {width ||
+                  "--"}{" "}
+                ×{" "}
+                {height ||
+                  "--"}{" "}
                 {unit}
               </strong>
             </div>
@@ -937,21 +1183,12 @@ function App() {
                   : "READY"}
               </strong>
             </div>
-
           </div>
-
         </main>
 
-        {/* ===================================================
-            RIGHT PROPERTIES
-        =================================================== */}
-
         <aside className="properties">
-
           <div className="properties-header">
-
             <div>
-
               <span>
                 AI DESIGN
               </span>
@@ -959,21 +1196,18 @@ function App() {
               <h2>
                 Properties
               </h2>
-
             </div>
 
             <div className="properties-icon">
               ✦
             </div>
-
           </div>
 
-          {/* CANVAS SIZE */}
-
           <section className="property-section">
-
             <div className="property-heading">
-              <span>01</span>
+              <span>
+                01
+              </span>
 
               <strong>
                 Canvas Size
@@ -981,24 +1215,28 @@ function App() {
             </div>
 
             <div className="size-inputs">
-
               <label>
-
                 <span>
                   W
                 </span>
 
                 <input
                   type="number"
-                  value={width}
-                  onChange={(e) =>
+                  value={
+                    width
+                  }
+                  onChange={(
+                    e
+                  ) =>
                     setWidth(
-                      e.target.value
+                      e.target
+                        .value
                     )
                   }
-                  disabled={!toolOn}
+                  disabled={
+                    !toolOn
+                  }
                 />
-
               </label>
 
               <span className="multiply">
@@ -1006,32 +1244,44 @@ function App() {
               </span>
 
               <label>
-
                 <span>
                   H
                 </span>
 
                 <input
                   type="number"
-                  value={height}
-                  onChange={(e) =>
+                  value={
+                    height
+                  }
+                  onChange={(
+                    e
+                  ) =>
                     setHeight(
-                      e.target.value
+                      e.target
+                        .value
                     )
                   }
-                  disabled={!toolOn}
+                  disabled={
+                    !toolOn
+                  }
                 />
-
               </label>
 
               <select
-                value={unit}
-                onChange={(e) =>
+                value={
+                  unit
+                }
+                onChange={(
+                  e
+                ) =>
                   setUnit(
-                    e.target.value
+                    e.target
+                      .value
                   )
                 }
-                disabled={!toolOn}
+                disabled={
+                  !toolOn
+                }
               >
                 <option value="mm">
                   mm
@@ -1045,17 +1295,14 @@ function App() {
                   m
                 </option>
               </select>
-
             </div>
-
           </section>
 
-          {/* DESIGN BRIEF */}
-
           <section className="property-section">
-
             <div className="property-heading">
-              <span>02</span>
+              <span>
+                02
+              </span>
 
               <strong>
                 Design Brief
@@ -1067,23 +1314,28 @@ function App() {
               placeholder={
                 "Mô tả thiết kế bạn muốn tạo...\n\nVí dụ: Backdrop khai giảng trường mầm non, màu sắc vui tươi, có hình các em nhỏ..."
               }
-              value={prompt}
-              onChange={(e) =>
+              value={
+                prompt
+              }
+              onChange={(
+                e
+              ) =>
                 setPrompt(
-                  e.target.value
+                  e.target
+                    .value
                 )
               }
-              disabled={!toolOn}
+              disabled={
+                !toolOn
+              }
             />
-
           </section>
 
-          {/* VISUAL STYLE */}
-
           <section className="property-section">
-
             <div className="property-heading">
-              <span>03</span>
+              <span>
+                03
+              </span>
 
               <strong>
                 Visual Style
@@ -1091,47 +1343,51 @@ function App() {
             </div>
 
             <div className="style-grid">
-
               {styles.map(
-                (item) => (
+                (
+                  item
+                ) => (
                   <button
-                    key={item}
+                    key={
+                      item
+                    }
                     className={
-                      style === item
+                      style ===
+                      item
                         ? "style active"
                         : "style"
                     }
                     onClick={() =>
-                      setStyle(item)
+                      setStyle(
+                        item
+                      )
                     }
-                    disabled={!toolOn}
+                    disabled={
+                      !toolOn
+                    }
                   >
                     {item}
                   </button>
                 )
               )}
-
             </div>
-
           </section>
-
-          {/* GENERATE */}
 
           <button
             className="generate-button"
-            onClick={handleCreate}
+            onClick={
+              handleCreate
+            }
             disabled={
               !toolOn ||
               generating
             }
           >
-
             <span className="generate-icon">
               ✦
             </span>
 
             <span>
-
               <strong>
                 {generating
                   ? "GENERATING..."
@@ -1141,21 +1397,18 @@ function App() {
               <small>
                 CREATE WITH AI
               </small>
-
             </span>
 
             <span className="arrow">
               →
             </span>
-
           </button>
 
-          {/* EXPORT */}
-
           <section className="export-section">
-
             <div className="property-heading">
-              <span>04</span>
+              <span>
+                04
+              </span>
 
               <strong>
                 Export
@@ -1163,9 +1416,10 @@ function App() {
             </div>
 
             <div className="export-grid">
-
               <button
-                disabled={!generatedImage}
+                disabled={
+                  !generatedImage
+                }
                 onClick={
                   handleDownloadPNG
                 }
@@ -1190,7 +1444,9 @@ function App() {
               </button>
 
               <button
-                disabled={!generatedImage}
+                disabled={
+                  !generatedImage
+                }
                 onClick={
                   handleDownloadPDF
                 }
@@ -1226,21 +1482,12 @@ function App() {
                   COREL
                 </small>
               </button>
-
             </div>
-
           </section>
-
         </aside>
-
       </div>
 
-      {/* =====================================================
-          FOOTER
-      ===================================================== */}
-
       <footer className="footer">
-
         <span>
           AI DESIGN PRINT
         </span>
@@ -1252,17 +1499,18 @@ function App() {
         <span>
           SYSTEM READY
         </span>
-
       </footer>
-
     </div>
   );
 }
 
 ReactDOM.createRoot(
-  document.getElementById("root")
+  document.getElementById(
+    "root"
+  )
 ).render(
   <React.StrictMode>
     <App />
   </React.StrictMode>
 );
+```
