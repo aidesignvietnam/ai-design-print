@@ -49,6 +49,135 @@ function App() {
     setError("");
   };
 
+  /*
+   * Kiểm tra xem thiết kế có phải tỷ lệ cực rộng / cực cao
+   * cần xử lý thêm hay không.
+   */
+  const needsAspectProcessing = (w, h) => {
+    if (!w || !h) return false;
+
+    const ratio = w / h;
+
+    return ratio >= 2 || ratio <= 0.5;
+  };
+
+  /*
+   * Tự động xử lý tỷ lệ sau khi AI tạo ảnh.
+   *
+   * Ví dụ:
+   * 400 × 70 = 5.714:1
+   *
+   * AI tạo artwork ban đầu
+   * ↓
+   * gửi artwork sang /api/edit
+   * ↓
+   * AI mở rộng bố cục
+   * ↓
+   * Sharp tạo canvas cuối cùng đúng tỷ lệ
+   */
+  const processAspectRatio = async (
+    image,
+    w,
+    h
+  ) => {
+    if (!image) return image;
+
+    if (!needsAspectProcessing(w, h)) {
+      return image;
+    }
+
+    const ratio = w / h;
+
+    const aspectPrompt = `
+IMPORTANT FINAL ASPECT-RATIO PROCESSING.
+
+The target physical design size is:
+
+${w} × ${h} ${unit}
+
+Target aspect ratio:
+${ratio.toFixed(4)}:1
+
+The image must be prepared for a professional large-format
+advertising print.
+
+DO NOT stretch or squash the existing artwork.
+
+DO NOT distort:
+- people
+- faces
+- products
+- logos
+- typography
+- objects
+
+Keep the original main design intact.
+
+The target format is an extremely wide advertising layout.
+
+Extend the background naturally toward the LEFT and RIGHT sides.
+
+Continue:
+- background
+- gradients
+- lighting
+- scenery
+- decorative elements
+- textures
+- colors
+
+The central artwork must remain proportional.
+
+Do not crop important content.
+
+Do not redesign the central composition.
+
+The result should look like a professionally designed
+wide-format advertising banner.
+
+The final composition must be suitable for:
+${w} × ${h} ${unit}
+printing.
+
+The image must NOT look stretched.
+`;
+
+    const response = await fetch("/api/edit", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        image,
+        editPrompt: aspectPrompt,
+        designType,
+        targetWidth: w,
+        targetHeight: h,
+        width: w,
+        height: h,
+        unit,
+        style,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(
+        data.error ||
+          "Không thể xử lý tỷ lệ thiết kế."
+      );
+    }
+
+    if (!data.image) {
+      throw new Error(
+        "API không trả về ảnh sau khi xử lý tỷ lệ."
+      );
+    }
+
+    return data.image;
+  };
+
   const handleCreate = async () => {
     if (!toolOn || generating) return;
 
@@ -56,7 +185,9 @@ function App() {
     const h = Number(height);
 
     if (!w || !h || w <= 0 || h <= 0) {
-      setError("Vui lòng nhập kích thước W × H hợp lệ.");
+      setError(
+        "Vui lòng nhập kích thước W × H hợp lệ."
+      );
       return;
     }
 
@@ -67,35 +198,84 @@ function App() {
     setError("");
 
     try {
-      const response = await fetch("/api/generate", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          designType,
-          width: w,
-          height: h,
-          unit,
-          prompt,
-          style,
-          aspectRatio,
-        }),
-      });
+      /*
+       * --------------------------------------------------
+       * BƯỚC 1
+       * AI tạo artwork ban đầu
+       * --------------------------------------------------
+       */
+
+      const response = await fetch(
+        "/api/generate",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            designType,
+            width: w,
+            height: h,
+            unit,
+            prompt,
+            style,
+            aspectRatio,
+          }),
+        }
+      );
 
       const data = await response.json();
 
       if (!response.ok) {
         throw new Error(
-          data.error || "Không thể tạo thiết kế."
+          data.error ||
+            "Không thể tạo thiết kế."
         );
       }
 
-      setGeneratedImage(data.image);
+      if (!data.image) {
+        throw new Error(
+          "AI không trả về hình ảnh."
+        );
+      }
+
+      let finalImage = data.image;
+
+      /*
+       * --------------------------------------------------
+       * BƯỚC 2
+       * Nếu tỷ lệ cực rộng / cực cao,
+       * tự động xử lý thêm.
+       * --------------------------------------------------
+       */
+
+      if (needsAspectProcessing(w, h)) {
+        finalImage =
+          await processAspectRatio(
+            data.image,
+            w,
+            h
+          );
+      }
+
+      /*
+       * --------------------------------------------------
+       * BƯỚC 3
+       * Hiển thị ảnh cuối cùng
+       * --------------------------------------------------
+       */
+
+      setGeneratedImage(finalImage);
+
     } catch (err) {
-      console.error(err);
+      console.error(
+        "CREATE ERROR:",
+        err
+      );
+
       setError(
-        err.message || "Có lỗi xảy ra khi tạo thiết kế."
+        err.message ||
+          "Có lỗi xảy ra khi tạo thiết kế."
       );
     } finally {
       setGenerating(false);
@@ -112,40 +292,62 @@ function App() {
       return;
     }
 
+    const w = Number(width);
+    const h = Number(height);
+
     setGenerating(true);
     setError("");
 
     try {
-      const response = await fetch("/api/edit", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          image: generatedImage,
-          editPrompt,
-          designType,
-          width,
-          height,
-          unit,
-          style,
-        }),
-      });
+      const response = await fetch(
+        "/api/edit",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+          body: JSON.stringify({
+            image: generatedImage,
+            editPrompt,
+            designType,
+            width: w,
+            height: h,
+            targetWidth: w,
+            targetHeight: h,
+            unit,
+            style,
+          }),
+        }
+      );
 
       const data = await response.json();
 
       if (!response.ok) {
         throw new Error(
-          data.error || "Không thể chỉnh sửa thiết kế."
+          data.error ||
+            "Không thể chỉnh sửa thiết kế."
+        );
+      }
+
+      if (!data.image) {
+        throw new Error(
+          "API không trả về ảnh chỉnh sửa."
         );
       }
 
       setGeneratedImage(data.image);
       setEditPrompt("");
+
     } catch (err) {
-      console.error(err);
+      console.error(
+        "EDIT ERROR:",
+        err
+      );
+
       setError(
-        err.message || "Có lỗi xảy ra khi chỉnh sửa."
+        err.message ||
+          "Có lỗi xảy ra khi chỉnh sửa."
       );
     } finally {
       setGenerating(false);
@@ -155,11 +357,13 @@ function App() {
   const handleDownloadPNG = () => {
     if (!generatedImage) return;
 
-    const link = document.createElement("a");
+    const link =
+      document.createElement("a");
 
     link.href = generatedImage;
 
-    link.download = `AI-Design-${designType}-${width}x${height}.png`;
+    link.download =
+      `AI-Design-${designType}-${width}x${height}.png`;
 
     link.click();
   };
@@ -171,9 +375,17 @@ function App() {
     const h = Number(height);
 
     const pdf = new jsPDF({
-      orientation: w >= h ? "landscape" : "portrait",
+      orientation:
+        w >= h
+          ? "landscape"
+          : "portrait",
+
       unit: "mm",
-      format: [w * 10, h * 10],
+
+      format: [
+        w * 10,
+        h * 10,
+      ],
     });
 
     pdf.addImage(
@@ -191,7 +403,11 @@ function App() {
   };
 
   return (
-    <div className={`app ${toolOn ? "" : "tool-off"}`}>
+    <div
+      className={`app ${
+        toolOn ? "" : "tool-off"
+      }`}
+    >
 
       {/* TOP BAR */}
 
@@ -226,10 +442,14 @@ function App() {
             className={`power-switch ${
               toolOn ? "active" : ""
             }`}
-            onClick={() => setToolOn(!toolOn)}
+            onClick={() =>
+              setToolOn(!toolOn)
+            }
           >
             <span></span>
-            {toolOn ? "ON" : "OFF"}
+            {toolOn
+              ? "ON"
+              : "OFF"}
           </button>
 
         </div>
@@ -251,24 +471,35 @@ function App() {
 
           <div className="tool-list">
 
-            {designTypes.map((type, index) => (
-              <button
-                key={type}
-                className={`tool-item ${
-                  designType === type
-                    ? "selected"
-                    : ""
-                }`}
-                onClick={() => setDesignType(type)}
-                disabled={!toolOn}
-              >
-                <span className="tool-number">
-                  {String(index + 1).padStart(2, "0")}
-                </span>
+            {designTypes.map(
+              (type, index) => (
+                <button
+                  key={type}
+                  className={`tool-item ${
+                    designType === type
+                      ? "selected"
+                      : ""
+                  }`}
+                  onClick={() =>
+                    setDesignType(type)
+                  }
+                  disabled={!toolOn}
+                >
+                  <span className="tool-number">
+                    {String(
+                      index + 1
+                    ).padStart(
+                      2,
+                      "0"
+                    )}
+                  </span>
 
-                <span>{type}</span>
-              </button>
-            ))}
+                  <span>
+                    {type}
+                  </span>
+                </button>
+              )
+            )}
 
           </div>
 
@@ -284,7 +515,9 @@ function App() {
             <input
               type="file"
               accept="image/*"
-              onChange={handleUpload}
+              onChange={
+                handleUpload
+              }
               disabled={!toolOn}
             />
 
@@ -314,6 +547,7 @@ function App() {
           )}
 
           <div className="sidebar-bottom">
+
             <div className="version">
               AI DESIGN PRINT
             </div>
@@ -321,6 +555,7 @@ function App() {
             <div className="version-number">
               VERSION 1.0 PRO
             </div>
+
           </div>
 
         </aside>
@@ -420,9 +655,19 @@ function App() {
                   <div className="canvas-empty-text">
                     AI đang thiết kế{" "}
                     {designType}{" "}
-                    {width} × {height}{" "}
+                    {width} ×{" "}
+                    {height}{" "}
                     {unit}
                   </div>
+
+                  {needsAspectProcessing(
+                    Number(width),
+                    Number(height)
+                  ) && (
+                    <div className="canvas-empty-text">
+                      Đang tối ưu tỷ lệ in...
+                    </div>
+                  )}
 
                 </div>
 
@@ -452,14 +697,16 @@ function App() {
                     width: "100%",
                     height: "100%",
                     display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    overflow: "hidden",
+                    flexDirection:
+                      "column",
+                    alignItems:
+                      "center",
+                    justifyContent:
+                      "center",
+                    overflow:
+                      "hidden",
                   }}
                 >
-
-                  {/* ẢNH LUÔN HIỂN THỊ TOÀN BỘ */}
 
                   <div
                     className="generated-image-wrap"
@@ -467,24 +714,33 @@ function App() {
                       width: "100%",
                       height: "100%",
                       display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      overflow: "hidden",
+                      alignItems:
+                        "center",
+                      justifyContent:
+                        "center",
+                      overflow:
+                        "hidden",
                     }}
                   >
 
                     <img
-                      src={generatedImage}
+                      src={
+                        generatedImage
+                      }
                       className="canvas-image"
                       alt="AI generated design"
                       style={{
                         display: "block",
                         width: "100%",
                         height: "100%",
-                        maxWidth: "100%",
-                        maxHeight: "100%",
-                        objectFit: "contain",
-                        objectPosition: "center",
+                        maxWidth:
+                          "100%",
+                        maxHeight:
+                          "100%",
+                        objectFit:
+                          "contain",
+                        objectPosition:
+                          "center",
                       }}
                     />
 
@@ -496,14 +752,18 @@ function App() {
 
                     <button
                       className="download-button"
-                      onClick={handleDownloadPNG}
+                      onClick={
+                        handleDownloadPNG
+                      }
                     >
                       ↓ TẢI XUỐNG PNG
                     </button>
 
                     <button
                       className="download-button"
-                      onClick={handleDownloadPDF}
+                      onClick={
+                        handleDownloadPDF
+                      }
                     >
                       ↓ TẢI XUỐNG PDF
                     </button>
@@ -514,15 +774,22 @@ function App() {
                         className="edit-design-input"
                         placeholder="Nhập yêu cầu chỉnh sửa thiết kế..."
                         rows="3"
-                        value={editPrompt}
+                        value={
+                          editPrompt
+                        }
                         onChange={(e) =>
-                          setEditPrompt(e.target.value)
+                          setEditPrompt(
+                            e.target
+                              .value
+                          )
                         }
                       />
 
                       <button
                         className="download-button"
-                        onClick={handleEdit}
+                        onClick={
+                          handleEdit
+                        }
                         disabled={
                           !editPrompt.trim() ||
                           generating
@@ -540,17 +807,23 @@ function App() {
               ) : uploadedImage ? (
 
                 <img
-                  src={uploadedImage}
+                  src={
+                    uploadedImage
+                  }
                   className="canvas-image"
                   alt="Uploaded design"
                   style={{
                     display: "block",
                     width: "100%",
                     height: "100%",
-                    maxWidth: "100%",
-                    maxHeight: "100%",
-                    objectFit: "contain",
-                    objectPosition: "center",
+                    maxWidth:
+                      "100%",
+                    maxHeight:
+                      "100%",
+                    objectFit:
+                      "contain",
+                    objectPosition:
+                      "center",
                   }}
                 />
 
@@ -571,8 +844,11 @@ function App() {
                   </div>
 
                   <div className="canvas-size">
-                    {width || "300"} ×{" "}
-                    {height || "270"}{" "}
+                    {width ||
+                      "300"}{" "}
+                    ×{" "}
+                    {height ||
+                      "270"}{" "}
                     {unit}
                   </div>
 
@@ -587,17 +863,24 @@ function App() {
           <div className="canvas-bottom">
 
             <div>
-              <span>DOCUMENT</span>
+              <span>
+                DOCUMENT
+              </span>
 
               <strong>
-                {width || "--"} ×{" "}
-                {height || "--"}{" "}
+                {width ||
+                  "--"}{" "}
+                ×{" "}
+                {height ||
+                  "--"}{" "}
                 {unit}
               </strong>
             </div>
 
             <div>
-              <span>TYPE</span>
+              <span>
+                TYPE
+              </span>
 
               <strong>
                 {designType}
@@ -605,7 +888,9 @@ function App() {
             </div>
 
             <div>
-              <span>STATUS</span>
+              <span>
+                STATUS
+              </span>
 
               <strong className="ready">
                 READY
@@ -668,7 +953,9 @@ function App() {
                   type="number"
                   value={width}
                   onChange={(e) =>
-                    setWidth(e.target.value)
+                    setWidth(
+                      e.target.value
+                    )
                   }
                   disabled={!toolOn}
                 />
@@ -689,7 +976,9 @@ function App() {
                   type="number"
                   value={height}
                   onChange={(e) =>
-                    setHeight(e.target.value)
+                    setHeight(
+                      e.target.value
+                    )
                   }
                   disabled={!toolOn}
                 />
@@ -699,7 +988,9 @@ function App() {
               <select
                 value={unit}
                 onChange={(e) =>
-                  setUnit(e.target.value)
+                  setUnit(
+                    e.target.value
+                  )
                 }
                 disabled={!toolOn}
               >
@@ -745,7 +1036,9 @@ function App() {
               }
               value={prompt}
               onChange={(e) =>
-                setPrompt(e.target.value)
+                setPrompt(
+                  e.target.value
+                )
               }
               disabled={!toolOn}
             />
@@ -770,22 +1063,28 @@ function App() {
 
             <div className="style-grid">
 
-              {styles.map((item) => (
-                <button
-                  key={item}
-                  className={
-                    style === item
-                      ? "style active"
-                      : "style"
-                  }
-                  onClick={() =>
-                    setStyle(item)
-                  }
-                  disabled={!toolOn}
-                >
-                  {item}
-                </button>
-              ))}
+              {styles.map(
+                (item) => (
+                  <button
+                    key={item}
+                    className={
+                      style === item
+                        ? "style active"
+                        : "style"
+                    }
+                    onClick={() =>
+                      setStyle(
+                        item
+                      )
+                    }
+                    disabled={
+                      !toolOn
+                    }
+                  >
+                    {item}
+                  </button>
+                )
+              )}
 
             </div>
 
@@ -795,8 +1094,13 @@ function App() {
 
           <button
             className="generate-button"
-            onClick={handleCreate}
-            disabled={!toolOn || generating}
+            onClick={
+              handleCreate
+            }
+            disabled={
+              !toolOn ||
+              generating
+            }
           >
 
             <span className="generate-icon">
@@ -842,8 +1146,12 @@ function App() {
             <div className="export-grid">
 
               <button
-                disabled={!generatedImage}
-                onClick={handleDownloadPNG}
+                disabled={
+                  !generatedImage
+                }
+                onClick={
+                  handleDownloadPNG
+                }
               >
                 <strong>
                   PNG
@@ -865,8 +1173,12 @@ function App() {
               </button>
 
               <button
-                disabled={!generatedImage}
-                onClick={handleDownloadPDF}
+                disabled={
+                  !generatedImage
+                }
+                onClick={
+                  handleDownloadPDF
+                }
               >
                 <strong>
                   PDF
