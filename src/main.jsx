@@ -5,14 +5,22 @@ import "./style.css";
 
 function App() {
   const [toolOn, setToolOn] = useState(true);
+
   const [designType, setDesignType] = useState("Backdrop");
   const [width, setWidth] = useState("300");
   const [height, setHeight] = useState("270");
   const [unit, setUnit] = useState("cm");
+
   const [prompt, setPrompt] = useState("");
   const [editPrompt, setEditPrompt] = useState("");
   const [style, setStyle] = useState("Hiện đại");
+
   const [uploadedImage, setUploadedImage] = useState(null);
+
+  const [generated, setGenerated] = useState(false);
+  const [generatedImage, setGeneratedImage] = useState(null);
+  const [generating, setGenerating] = useState(false);
+  const [error, setError] = useState("");
 
   const designTypes = [
     "Backdrop",
@@ -38,147 +46,172 @@ function App() {
     if (!file) return;
 
     setUploadedImage(URL.createObjectURL(file));
+    setGeneratedImage(null);
+    setGenerated(false);
+    setError("");
   };
 
-const [generated, setGenerated] = useState(false);
-const [generatedImage, setGeneratedImage] = useState(null);
-const [generating, setGenerating] = useState(false);
-const [error, setError] = useState("");
+  const handleCreate = async () => {
+    if (!toolOn || generating) return;
 
-const handleCreate = async () => {
-  if (!toolOn || generating) return;
+    const w = Number(width);
+    const h = Number(height);
 
-  const w = Number(width);
-  const h = Number(height);
-
-  if (!w || !h || w <= 0 || h <= 0) {
-    setError("Vui lòng nhập kích thước W × H hợp lệ.");
-    return;
-  }
-
-  // Tính tỷ lệ thiết kế
-  const aspectRatio = w / h;
-
-  setGenerating(true);
-  setGenerated(false);
-  setGeneratedImage(null);
-  setError("");
-
-  try {
-    const response = await fetch("/api/generate", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        designType,
-        width: w,
-        height: h,
-        unit,
-        prompt,
-        style,
-        aspectRatio,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error || "Không thể tạo thiết kế.");
+    if (!w || !h || w <= 0 || h <= 0) {
+      setError("Vui lòng nhập kích thước W × H hợp lệ.");
+      return;
     }
 
-    setGeneratedImage(data.image);
-    setGenerated(true);
-  } catch (err) {
-    console.error(err);
-    setError(err.message || "Có lỗi xảy ra.");
-  } finally {
-    setGenerating(false);
-  }
-};
- const handleEdit = async () => {
-  if (!toolOn || generating || !generatedImage || !editPrompt.trim()) {
-    return;
-  }
+    const aspectRatio = w / h;
 
-  setGenerating(true);
-  setError("");
+    setGenerating(true);
+    setGenerated(false);
+    setGeneratedImage(null);
+    setError("");
 
-  try {
-    const response = await fetch("/api/edit", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        image: generatedImage,
-        editPrompt,
-        designType,
-        width,
-        height,
-        unit,
-        style,
-      }),
-    });
+    try {
+      const response = await fetch("/api/generate", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          designType,
+          width: w,
+          height: h,
+          unit,
+          prompt,
+          style,
+          aspectRatio,
+        }),
+      });
 
-    const data = await response.json();
+      const data = await response.json();
 
-    if (!response.ok) {
-      throw new Error(data.error || "Không thể chỉnh sửa thiết kế.");
+      if (!response.ok) {
+        throw new Error(data.error || "Không thể tạo thiết kế.");
+      }
+
+      setGeneratedImage(data.image);
+      setGenerated(true);
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Có lỗi xảy ra.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleEdit = async () => {
+    if (
+      !toolOn ||
+      generating ||
+      !generatedImage ||
+      !editPrompt.trim()
+    ) {
+      return;
     }
 
-    setGeneratedImage(data.image);
-    setGenerated(true);
-    setEditPrompt("");
-  } catch (err) {
-    console.error(err);
-    setError(err.message || "Có lỗi xảy ra.");
-  } finally {
-    setGenerating(false);
-  }
-};
-const handleDownloadPDF = () => {
-  if (!generatedImage) return;
+    setGenerating(true);
+    setError("");
 
-  const pdf = new jsPDF({
-    orientation: Number(width) >= Number(height) ? "landscape" : "portrait",
-    unit: "mm",
-    format: [
-      Number(width) * 10,
-      Number(height) * 10,
-    ],
-  });
+    try {
+      const response = await fetch("/api/edit", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          image: generatedImage,
+          editPrompt,
+          designType,
+          width,
+          height,
+          unit,
+          style,
+        }),
+      });
 
-  pdf.addImage(
-    generatedImage,
-    "PNG",
-    0,
-    0,
-    Number(width) * 10,
-    Number(height) * 10
-  );
+      const data = await response.json();
 
-  pdf.save(
-    `AI-Design-${designType}-${width}x${height}-${unit}.pdf`
-  );
-};
+      if (!response.ok) {
+        throw new Error(
+          data.error || "Không thể chỉnh sửa thiết kế."
+        );
+      }
+
+      setGeneratedImage(data.image);
+      setGenerated(true);
+      setEditPrompt("");
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Có lỗi xảy ra.");
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleDownloadPNG = () => {
+    if (!generatedImage) return;
+
+    const link = document.createElement("a");
+
+    link.href = generatedImage;
+
+    link.download = `AI-Design-${designType}-${width}x${height}.png`;
+
+    link.click();
+  };
+
+  const handleDownloadPDF = () => {
+    if (!generatedImage) return;
+
+    const w = Number(width);
+    const h = Number(height);
+
+    const pdf = new jsPDF({
+      orientation: w >= h ? "landscape" : "portrait",
+      unit: "mm",
+      format: [w * 10, h * 10],
+    });
+
+    pdf.addImage(
+      generatedImage,
+      "PNG",
+      0,
+      0,
+      w * 10,
+      h * 10
+    );
+
+    pdf.save(
+      `AI-Design-${designType}-${width}x${height}-${unit}.pdf`
+    );
+  };
 
   return (
-
     <div className={`app ${toolOn ? "" : "tool-off"}`}>
 
       {/* TOP BAR */}
+
       <header className="topbar">
 
         <div className="logo-area">
-          <div className="logo-mark">AI</div>
+
+          <div className="logo-mark">
+            AI
+          </div>
 
           <div>
-            <div className="logo-title">AI DESIGN PRINT</div>
+            <div className="logo-title">
+              AI DESIGN PRINT
+            </div>
+
             <div className="logo-subtitle">
               PROFESSIONAL DESIGN STUDIO
             </div>
           </div>
+
         </div>
 
         <div className="top-actions">
@@ -189,7 +222,9 @@ const handleDownloadPDF = () => {
           </div>
 
           <button
-            className={`power-switch ${toolOn ? "active" : ""}`}
+            className={`power-switch ${
+              toolOn ? "active" : ""
+            }`}
             onClick={() => setToolOn(!toolOn)}
           >
             <span></span>
@@ -197,12 +232,15 @@ const handleDownloadPDF = () => {
           </button>
 
         </div>
+
       </header>
 
       {/* MAIN APPLICATION */}
+
       <div className="studio">
 
         {/* LEFT SIDEBAR */}
+
         <aside className="sidebar">
 
           <div className="sidebar-heading">
@@ -216,7 +254,9 @@ const handleDownloadPDF = () => {
               <button
                 key={type}
                 className={`tool-item ${
-                  designType === type ? "selected" : ""
+                  designType === type
+                    ? "selected"
+                    : ""
                 }`}
                 onClick={() => setDesignType(type)}
                 disabled={!toolOn}
@@ -239,6 +279,7 @@ const handleDownloadPDF = () => {
           </div>
 
           <label className="upload-button">
+
             <input
               type="file"
               accept="image/*"
@@ -246,49 +287,84 @@ const handleDownloadPDF = () => {
               disabled={!toolOn}
             />
 
-            <span className="upload-symbol">↑</span>
+            <span className="upload-symbol">
+              ↑
+            </span>
 
             <span>
-              <strong>Upload Image</strong>
-              <small>PNG / JPG / WEBP</small>
+              <strong>
+                Upload Image
+              </strong>
+
+              <small>
+                PNG / JPG / WEBP
+              </small>
             </span>
+
           </label>
 
           {uploadedImage && (
             <div className="asset-preview">
-              <img src={uploadedImage} alt="Uploaded asset" />
+              <img
+                src={uploadedImage}
+                alt="Uploaded asset"
+              />
             </div>
           )}
 
           <div className="sidebar-bottom">
-            <div className="version">AI DESIGN PRINT</div>
-            <div className="version-number">VERSION 1.0 PRO</div>
+            <div className="version">
+              AI DESIGN PRINT
+            </div>
+
+            <div className="version-number">
+              VERSION 1.0 PRO
+            </div>
           </div>
 
         </aside>
 
         {/* CENTER CANVAS */}
+
         <main className="canvas-area">
 
           <div className="canvas-toolbar">
 
             <div className="canvas-title">
-              <span>CANVAS</span>
-              <strong>{designType}</strong>
+
+              <span>
+                CANVAS
+              </span>
+
+              <strong>
+                {designType}
+              </strong>
+
             </div>
 
             <div className="canvas-tools">
 
-              <button title="Undo">↶</button>
-              <button title="Redo">↷</button>
+              <button title="Undo">
+                ↶
+              </button>
+
+              <button title="Redo">
+                ↷
+              </button>
 
               <span className="toolbar-divider"></span>
 
-              <button title="Zoom out">−</button>
+              <button title="Zoom out">
+                −
+              </button>
 
-              <span className="zoom-value">100%</span>
+              <span className="zoom-value">
+                100%
+              </span>
 
-              <button title="Zoom in">+</button>
+              <button title="Zoom in">
+                +
+              </button>
 
             </div>
 
@@ -314,119 +390,150 @@ const handleDownloadPDF = () => {
               <span>200</span>
               <span>250</span>
             </div>
-          <div
-  className="design-canvas"
-  style={{
-    aspectRatio: `${Number(width) || 300} / ${Number(height) || 270}`,
-  }}
->
-{generating ? (
-  <div className="empty-canvas">
-    <div className="canvas-icon">✦</div>
 
-    <div className="canvas-empty-title">
-      ĐANG TẠO THIẾT KẾ...
-    </div>
+            <div
+              className="design-canvas"
+              style={{
+                aspectRatio: `${
+                  Number(width) || 300
+                } / ${
+                  Number(height) || 270
+                }`,
+              }}
+            >
 
-    <div className="canvas-empty-text">
-      AI đang thiết kế {designType} {width} × {height} {unit}
-    </div>
-  </div>
-) : error ? (
-  <div className="empty-canvas">
-    <div className="canvas-icon">!</div>
+              {generating ? (
 
-    <div className="canvas-empty-title">
-      KHÔNG THỂ TẠO THIẾT KẾ
-    </div>
+                <div className="empty-canvas">
 
-    <div className="canvas-empty-text">
-      {error}
-    </div>
-  </div>
-```jsx
-) : generatedImage ? (
-  <div className="generated-result">
+                  <div className="canvas-icon">
+                    ✦
+                  </div>
 
-    <div className="generated-image-wrap">
-      <img
-        src={generatedImage}
-        className="canvas-image"
-        alt="AI generated design"
-      />
-    </div>
+                  <div className="canvas-empty-title">
+                    ĐANG TẠO THIẾT KẾ...
+                  </div>
 
-    <div className="generated-actions">
+                  <div className="canvas-empty-text">
+                    AI đang thiết kế{" "}
+                    {designType}{" "}
+                    {width} × {height}{" "}
+                    {unit}
+                  </div>
 
-      <button
-        className="download-button"
-        onClick={() => {
-          const link = document.createElement("a");
-          link.href = generatedImage;
-          link.download = `AI-Design-${designType}-${width}x${height}.png`;
-          link.click();
-        }}
-      >
-        ↓ TẢI XUỐNG PNG
-      </button>
+                </div>
 
-      <button
-        className="download-button"
-        onClick={handleDownloadPDF}
-      >
-        ↓ TẢI XUỐNG PDF
-      </button>
+              ) : error ? (
 
-      <div className="edit-design-box">
-        <textarea
-          className="edit-design-input"
-          placeholder="Nhập yêu cầu chỉnh sửa thiết kế..."
-          rows="3"
-          value={editPrompt}
-          onChange={(e) => setEditPrompt(e.target.value)}
-        />
+                <div className="empty-canvas">
 
-        <button
-          className="download-button"
-          onClick={handleEdit}
-          disabled={!editPrompt.trim() || generating}
-        >
-          ✦ CHỈNH SỬA THIẾT KẾ
-        </button>
-      </div>
+                  <div className="canvas-icon">
+                    !
+                  </div>
 
-    </div>
+                  <div className="canvas-empty-title">
+                    KHÔNG THỂ TẠO THIẾT KẾ
+                  </div>
 
-  </div>
-) : uploadedImage ? (
-  <img
-```
-  <img
-    src={uploadedImage}
-    className="canvas-image"
-    alt="Uploaded design"
-  />
-) : (
-  <div className="empty-canvas">
+                  <div className="canvas-empty-text">
+                    {error}
+                  </div>
 
-    <div className="canvas-icon">
-      ✦
-    </div>
+                </div>
 
-    <div className="canvas-empty-title">
-      YOUR DESIGN
-    </div>
+              ) : generatedImage ? (
 
-    <div className="canvas-empty-text">
-      AI generated artwork will appear here
-    </div>
+                <div className="generated-result">
 
-    <div className="canvas-size">
-      {width || "300"} × {height || "270"} {unit}
-    </div>
+                  <div className="generated-image-wrap">
 
-  </div>
-)}
+                    <img
+                      src={generatedImage}
+                      className="canvas-image"
+                      alt="AI generated design"
+                    />
+
+                  </div>
+
+                  <div className="generated-actions">
+
+                    <button
+                      className="download-button"
+                      onClick={handleDownloadPNG}
+                    >
+                      ↓ TẢI XUỐNG PNG
+                    </button>
+
+                    <button
+                      className="download-button"
+                      onClick={handleDownloadPDF}
+                    >
+                      ↓ TẢI XUỐNG PDF
+                    </button>
+
+                    <div className="edit-design-box">
+
+                      <textarea
+                        className="edit-design-input"
+                        placeholder="Nhập yêu cầu chỉnh sửa thiết kế..."
+                        rows="3"
+                        value={editPrompt}
+                        onChange={(e) =>
+                          setEditPrompt(e.target.value)
+                        }
+                      />
+
+                      <button
+                        className="download-button"
+                        onClick={handleEdit}
+                        disabled={
+                          !editPrompt.trim() ||
+                          generating
+                        }
+                      >
+                        ✦ CHỈNH SỬA THIẾT KẾ
+                      </button>
+
+                    </div>
+
+                  </div>
+
+                </div>
+
+              ) : uploadedImage ? (
+
+                <img
+                  src={uploadedImage}
+                  className="canvas-image"
+                  alt="Uploaded design"
+                />
+
+              ) : (
+
+                <div className="empty-canvas">
+
+                  <div className="canvas-icon">
+                    ✦
+                  </div>
+
+                  <div className="canvas-empty-title">
+                    YOUR DESIGN
+                  </div>
+
+                  <div className="canvas-empty-text">
+                    AI generated artwork will appear here
+                  </div>
+
+                  <div className="canvas-size">
+                    {width || "300"} ×{" "}
+                    {height || "270"}{" "}
+                    {unit}
+                  </div>
+
+                </div>
+
+              )}
+
             </div>
 
           </div>
@@ -434,20 +541,41 @@ const handleDownloadPDF = () => {
           <div className="canvas-bottom">
 
             <div>
-              <span>DOCUMENT</span>
+
+              <span>
+                DOCUMENT
+              </span>
+
               <strong>
-                {width || "--"} × {height || "--"} {unit}
+                {width || "--"} ×{" "}
+                {height || "--"}{" "}
+                {unit}
               </strong>
+
             </div>
 
             <div>
-              <span>TYPE</span>
-              <strong>{designType}</strong>
+
+              <span>
+                TYPE
+              </span>
+
+              <strong>
+                {designType}
+              </strong>
+
             </div>
 
             <div>
-              <span>STATUS</span>
-              <strong className="ready">READY</strong>
+
+              <span>
+                STATUS
+              </span>
+
+              <strong className="ready">
+                READY
+              </strong>
+
             </div>
 
           </div>
@@ -455,57 +583,103 @@ const handleDownloadPDF = () => {
         </main>
 
         {/* RIGHT PANEL */}
+
         <aside className="properties">
 
           <div className="properties-header">
+
             <div>
-              <span>AI DESIGN</span>
-              <h2>Properties</h2>
+
+              <span>
+                AI DESIGN
+              </span>
+
+              <h2>
+                Properties
+              </h2>
+
             </div>
 
-            <div className="properties-icon">✦</div>
+            <div className="properties-icon">
+              ✦
+            </div>
+
           </div>
 
           {/* SIZE */}
+
           <section className="property-section">
 
             <div className="property-heading">
-              <span>01</span>
-              <strong>Canvas Size</strong>
+
+              <span>
+                01
+              </span>
+
+              <strong>
+                Canvas Size
+              </strong>
+
             </div>
 
             <div className="size-inputs">
 
               <label>
-                <span>W</span>
+
+                <span>
+                  W
+                </span>
+
                 <input
                   type="number"
                   value={width}
-                  onChange={(e) => setWidth(e.target.value)}
+                  onChange={(e) =>
+                    setWidth(e.target.value)
+                  }
                   disabled={!toolOn}
                 />
+
               </label>
 
-              <span className="multiply">×</span>
+              <span className="multiply">
+                ×
+              </span>
 
               <label>
-                <span>H</span>
+
+                <span>
+                  H
+                </span>
+
                 <input
                   type="number"
                   value={height}
-                  onChange={(e) => setHeight(e.target.value)}
+                  onChange={(e) =>
+                    setHeight(e.target.value)
+                  }
                   disabled={!toolOn}
                 />
+
               </label>
 
               <select
                 value={unit}
-                onChange={(e) => setUnit(e.target.value)}
+                onChange={(e) =>
+                  setUnit(e.target.value)
+                }
                 disabled={!toolOn}
               >
-                <option value="mm">mm</option>
-                <option value="cm">cm</option>
-                <option value="m">m</option>
+                <option value="mm">
+                  mm
+                </option>
+
+                <option value="cm">
+                  cm
+                </option>
+
+                <option value="m">
+                  m
+                </option>
               </select>
 
             </div>
@@ -513,11 +687,19 @@ const handleDownloadPDF = () => {
           </section>
 
           {/* PROMPT */}
+
           <section className="property-section">
 
             <div className="property-heading">
-              <span>02</span>
-              <strong>Design Brief</strong>
+
+              <span>
+                02
+              </span>
+
+              <strong>
+                Design Brief
+              </strong>
+
             </div>
 
             <textarea
@@ -526,18 +708,28 @@ const handleDownloadPDF = () => {
                 "Mô tả thiết kế bạn muốn tạo...\n\nVí dụ: Backdrop khai giảng trường mầm non, màu sắc vui tươi, có hình các em nhỏ..."
               }
               value={prompt}
-              onChange={(e) => setPrompt(e.target.value)}
+              onChange={(e) =>
+                setPrompt(e.target.value)
+              }
               disabled={!toolOn}
             />
 
           </section>
 
           {/* STYLE */}
+
           <section className="property-section">
 
             <div className="property-heading">
-              <span>03</span>
-              <strong>Visual Style</strong>
+
+              <span>
+                03
+              </span>
+
+              <strong>
+                Visual Style
+              </strong>
+
             </div>
 
             <div className="style-grid">
@@ -545,8 +737,14 @@ const handleDownloadPDF = () => {
               {styles.map((item) => (
                 <button
                   key={item}
-                  className={style === item ? "style active" : "style"}
-                  onClick={() => setStyle(item)}
+                  className={
+                    style === item
+                      ? "style active"
+                      : "style"
+                  }
+                  onClick={() =>
+                    setStyle(item)
+                  }
                   disabled={!toolOn}
                 >
                   {item}
@@ -558,54 +756,112 @@ const handleDownloadPDF = () => {
           </section>
 
           {/* AI BUTTON */}
+
           <button
             className="generate-button"
             onClick={handleCreate}
-            disabled={!toolOn}
+            disabled={!toolOn || generating}
           >
-            <span className="generate-icon">✦</span>
 
-            <span>
-              <strong>GENERATE DESIGN</strong>
-              <small>CREATE WITH AI</small>
+            <span className="generate-icon">
+              ✦
             </span>
 
-            <span className="arrow">→</span>
+            <span>
+
+              <strong>
+                {generating
+                  ? "GENERATING..."
+                  : "GENERATE DESIGN"}
+              </strong>
+
+              <small>
+                CREATE WITH AI
+              </small>
+
+            </span>
+
+            <span className="arrow">
+              →
+            </span>
+
           </button>
 
           {/* EXPORT */}
+
           <section className="export-section">
 
             <div className="property-heading">
-              <span>04</span>
-              <strong>Export</strong>
+
+              <span>
+                04
+              </span>
+
+              <strong>
+                Export
+              </strong>
+
             </div>
 
             <div className="export-grid">
 
-              <button disabled>
-                <strong>PNG</strong>
-                <small>IMAGE</small>
+              <button
+                disabled={!generatedImage}
+                onClick={handleDownloadPNG}
+              >
+                <strong>
+                  PNG
+                </strong>
+
+                <small>
+                  IMAGE
+                </small>
               </button>
 
               <button disabled>
-                <strong>JPG</strong>
-                <small>IMAGE</small>
+                <strong>
+                  JPG
+                </strong>
+
+                <small>
+                  IMAGE
+                </small>
+              </button>
+
+              <button
+                disabled={!generatedImage}
+                onClick={handleDownloadPDF}
+              >
+                <strong>
+                  PDF
+                </strong>
+
+                <small>
+                  PRINT
+                </small>
               </button>
 
               <button disabled>
-                <strong>PDF</strong>
-                <small>PRINT</small>
+                <strong>
+                  SVG
+                </strong>
+
+                <small>
+                  VECTOR
+                </small>
               </button>
 
-              <button disabled>
-                <strong>SVG</strong>
-                <small>VECTOR</small>
-              </button>
+              <button
+                className="cdr-button"
+                disabled
+              >
+                <strong>
+                  CDR
+                </strong>
 
-              <button className="cdr-button" disabled>
-                <strong>CDR</strong>
-                <small>COREL</small>
+                <small>
+                  COREL
+                </small>
               </button>
 
             </div>
@@ -617,9 +873,12 @@ const handleDownloadPDF = () => {
       </div>
 
       {/* FOOTER */}
+
       <footer className="footer">
 
-        <span>AI DESIGN PRINT</span>
+        <span>
+          AI DESIGN PRINT
+        </span>
 
         <span>
           BACKDROP • SIGNAGE • PRINTING
@@ -635,7 +894,9 @@ const handleDownloadPDF = () => {
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(
+ReactDOM.createRoot(
+  document.getElementById("root")
+).render(
   <React.StrictMode>
     <App />
   </React.StrictMode>
