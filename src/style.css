@@ -412,19 +412,19 @@ select:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-}
+  }
 
-.design-canvas {
+  .design-canvas {
   width: min(72%, 720px);
- aspect-ratio: auto;
+  aspect-ratio: unset;
   background: #f4f5f7;
   border: 1px solid #4b5361;
   box-shadow:
-    0 30px 70px rgba(0, 0, 0, 0.5),
-    0 0 0 8px rgba(0, 0, 0, 0.15);
+  0 30px 70px rgba(0, 0, 0, 0.5),
+  0 0 0 8px rgba(0, 0, 0, 0.15);
   position: relative;
   overflow: hidden;
-}
+  }
 
 .empty-canvas {
   width: 100%;
