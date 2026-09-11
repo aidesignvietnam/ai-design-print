@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { toFile } from "openai/uploads";
 import sharp from "sharp";
 
 const openai = new OpenAI({
@@ -22,7 +23,9 @@ function dataUrlToBuffer(dataUrl) {
     throw new Error("Không có dữ liệu ảnh.");
   }
 
-  const match = dataUrl.match(/^data:image\/([a-zA-Z0-9.+-]+);base64,(.+)$/);
+  const match = dataUrl.match(
+    /^data:image\/([a-zA-Z0-9.+-]+);base64,(.+)$/
+  );
 
   if (!match) {
     throw new Error("Định dạng ảnh đầu vào không hợp lệ.");
@@ -49,17 +52,6 @@ async function getImageInfo(buffer) {
   };
 }
 
-/*
- * Tạo một canvas làm việc theo tỷ lệ đích.
- *
- * Ví dụ:
- * 400 x 70
- * => tỷ lệ 5.714:1
- *
- * Ảnh gốc được đặt vào giữa và KHÔNG bị kéo méo.
- * Phần còn thiếu hai bên được để trong suốt để AI có
- * không gian mở rộng thiết kế.
- */
 async function createExpansionCanvas(
   sourceBuffer,
   targetWidth,
@@ -69,31 +61,25 @@ async function createExpansionCanvas(
 
   const targetRatio = targetWidth / targetHeight;
 
-  const maxCanvasWidth = 1536;
+  const canvasWidth = 1536;
   const canvasHeight = Math.max(
     256,
-    Math.round(maxCanvasWidth / targetRatio)
+    Math.round(canvasWidth / targetRatio)
   );
-
-  const canvasWidth = maxCanvasWidth;
 
   let resizedWidth;
   let resizedHeight;
 
   if (sourceInfo.ratio > targetRatio) {
-    /*
-     * Ảnh nguồn tương đối ngang.
-     * Giữ toàn bộ chiều rộng và thu chiều cao.
-     */
     resizedWidth = canvasWidth;
-    resizedHeight = Math.round(canvasWidth / sourceInfo.ratio);
+    resizedHeight = Math.round(
+      canvasWidth / sourceInfo.ratio
+    );
   } else {
-    /*
-     * Ảnh nguồn cao hơn.
-     * Giữ toàn bộ chiều cao phù hợp.
-     */
     resizedHeight = canvasHeight;
-    resizedWidth = Math.round(canvasHeight * sourceInfo.ratio);
+    resizedWidth = Math.round(
+      canvasHeight * sourceInfo.ratio
+    );
   }
 
   const resized = await sharp(sourceBuffer)
@@ -103,8 +89,15 @@ async function createExpansionCanvas(
     .png()
     .toBuffer();
 
-  const left = Math.round((canvasWidth - resizedWidth) / 2);
-  const top = Math.round((canvasHeight - resizedHeight) / 2);
+  const left = Math.max(
+    0,
+    Math.round((canvasWidth - resizedWidth) / 2)
+  );
+
+  const top = Math.max(
+    0,
+    Math.round((canvasHeight - resizedHeight) / 2)
+  );
 
   const canvas = await sharp({
     create: {
@@ -140,16 +133,7 @@ async function createExpansionCanvas(
   };
 }
 
-/*
- * Khi AI trả về ảnh chuẩn của model, chúng ta kiểm tra lại.
- *
- * Không bao giờ resize kiểu "fill" để ép người / sản phẩm /
- * logo / chữ bị méo.
- *
- * Với ảnh siêu ngang, phần cuối sẽ được tạo thành canvas
- * đúng tỷ lệ bằng cách giữ nguyên nội dung chính.
- */
-async function createExactRatioImage(
+async function createFinalRatioImage(
   aiBuffer,
   targetWidth,
   targetHeight
@@ -159,114 +143,51 @@ async function createExactRatioImage(
   const targetRatio = targetWidth / targetHeight;
 
   /*
-   * Kích thước pixel xuất cuối.
+   * Final PNG canvas.
    *
-   * Không dùng kích thước centimet trực tiếp vì PNG
-   * cần kích thước pixel thực tế.
+   * 400 × 70 cm
+   * => 2400 × 420 px
    */
   const finalWidth = 2400;
+
   const finalHeight = Math.max(
     1,
     Math.round(finalWidth / targetRatio)
   );
 
   /*
-   * Scale ảnh AI xuống theo chiều cao của vùng trung tâm.
-   * Không làm biến dạng.
+   * Giữ nguyên tỷ lệ AI.
+   * Không kéo méo nội dung.
    */
-  const maxCenterWidth = Math.min(
-    finalWidth,
-    Math.round(finalHeight * aiInfo.ratio)
-  );
+  let centerWidth;
+  let centerHeight;
+
+  if (aiInfo.ratio > targetRatio) {
+    centerWidth = finalWidth;
+    centerHeight = Math.round(
+      finalWidth / aiInfo.ratio
+    );
+  } else {
+    centerHeight = finalHeight;
+    centerWidth = Math.round(
+      finalHeight * aiInfo.ratio
+    );
+  }
 
   const center = await sharp(aiBuffer)
-    .resize({
-      width: maxCenterWidth,
-      height: finalHeight,
-      fit: "contain",
-      background: {
-        r: 255,
-        g: 255,
-        b: 255,
-        alpha: 0,
-      },
+    .resize(centerWidth, centerHeight, {
+      fit: "fill",
     })
     .png()
     .toBuffer();
 
-  const centerInfo = await getImageInfo(center);
-
-  const leftWidth = Math.max(
-    0,
-    Math.floor((finalWidth - centerInfo.width) / 2)
-  );
-
-  const rightWidth =
-    finalWidth - centerInfo.width - leftWidth;
-
   /*
-   * Lấy màu/texture mép ảnh để tạo phần nền mở rộng.
-   * Không kéo giãn nội dung chính.
+   * Tạo nền mở rộng từ mép ảnh.
+   *
+   * Đây chỉ là lớp nền tạm thời.
+   * AI đã được yêu cầu mở rộng thiết kế trước đó.
    */
-  const leftBackground =
-    leftWidth > 0
-      ? await sharp(aiBuffer)
-          .extract({
-            left: 0,
-            top: 0,
-            width: 1,
-            height: aiInfo.height,
-          })
-          .resize(leftWidth, finalHeight, {
-            fit: "cover",
-          })
-          .blur(8)
-          .png()
-          .toBuffer()
-      : null;
-
-  const rightBackground =
-    rightWidth > 0
-      ? await sharp(aiBuffer)
-          .extract({
-            left: Math.max(0, aiInfo.width - 1),
-            top: 0,
-            width: 1,
-            height: aiInfo.height,
-          })
-          .resize(rightWidth, finalHeight, {
-            fit: "cover",
-          })
-          .blur(8)
-          .png()
-          .toBuffer()
-      : null;
-
-  const compositeItems = [];
-
-  if (leftBackground) {
-    compositeItems.push({
-      input: leftBackground,
-      left: 0,
-      top: 0,
-    });
-  }
-
-  compositeItems.push({
-    input: center,
-    left: leftWidth,
-    top: 0,
-  });
-
-  if (rightBackground) {
-    compositeItems.push({
-      input: rightBackground,
-      left: leftWidth + centerInfo.width,
-      top: 0,
-    });
-  }
-
-  const finalBuffer = await sharp({
+  const background = await sharp({
     create: {
       width: finalWidth,
       height: finalHeight,
@@ -278,16 +199,32 @@ async function createExactRatioImage(
         alpha: 1,
       },
     },
-  })
-    .composite(compositeItems)
+  }).png().toBuffer();
+
+  const left =
+    Math.max(0, Math.round((finalWidth - centerWidth) / 2));
+
+  const top =
+    Math.max(0, Math.round((finalHeight - centerHeight) / 2));
+
+  const finalBuffer = await sharp(background)
+    .composite([
+      {
+        input: center,
+        left,
+        top,
+      },
+    ])
     .png()
     .toBuffer();
 
+  const finalInfo = await getImageInfo(finalBuffer);
+
   return {
     buffer: finalBuffer,
-    width: finalWidth,
-    height: finalHeight,
-    ratio: finalWidth / finalHeight,
+    width: finalInfo.width,
+    height: finalInfo.height,
+    ratio: finalInfo.ratio,
   };
 }
 
@@ -310,8 +247,13 @@ export default async function handler(req, res) {
       style = "Hiện đại",
     } = req.body || {};
 
-    const finalTargetWidth = Number(targetWidth || width);
-    const finalTargetHeight = Number(targetHeight || height);
+    const finalTargetWidth = Number(
+      targetWidth || width
+    );
+
+    const finalTargetHeight = Number(
+      targetHeight || height
+    );
 
     if (
       !Number.isFinite(finalTargetWidth) ||
@@ -331,7 +273,9 @@ export default async function handler(req, res) {
     }
 
     const sourceBuffer = dataUrlToBuffer(image);
-    const sourceInfo = await getImageInfo(sourceBuffer);
+
+    const sourceInfo =
+      await getImageInfo(sourceBuffer);
 
     const targetRatio =
       finalTargetWidth / finalTargetHeight;
@@ -341,9 +285,6 @@ export default async function handler(req, res) {
       finalTargetHeight
     );
 
-    /*
-     * Prompt chuyên dụng cho việc mở rộng tỷ lệ.
-     */
     const aspectPrompt = `
 You are finishing a professional advertising print design.
 
@@ -360,84 +301,78 @@ STYLE:
 ${style}
 
 TASK:
-Expand the existing artwork naturally so it can be used for the target
-advertising print layout.
 
-CRITICAL RULES:
+Expand the existing artwork naturally to the requested ultra-wide
+or print aspect ratio.
 
-1. NEVER stretch or squash the original artwork.
+IMPORTANT RULES:
 
-2. NEVER distort:
-- people
-- faces
-- bodies
-- products
-- vehicles
-- logos
-- typography
-- symbols
-- objects
+- NEVER stretch or squash the original artwork.
+- NEVER distort people.
+- NEVER distort faces.
+- NEVER distort bodies.
+- NEVER distort products.
+- NEVER distort vehicles.
+- NEVER distort logos.
+- NEVER distort typography.
+- Preserve the original visual identity.
+- Keep important content in the central safe area.
+- Naturally continue the background into the additional space.
+- Continue lighting, gradients, scenery, textures and decorative elements.
+- Make the result look like one continuous professional design.
+- Do not duplicate the central image.
+- Do not mirror the image.
+- Do not create repeating patterns.
+- Do not create blurred side panels.
+- Do not create white empty strips.
+- Do not add random text.
+- Do not add watermarks.
 
-3. Keep the important original design elements together in the safe central
-area.
-
-4. Extend the visual environment naturally into the empty areas.
-
-5. The extension must look like it belongs to the SAME ORIGINAL DESIGN.
-
-6. Continue:
-- background
-- gradients
-- lighting
-- decorative shapes
-- architectural elements
-- scenery
-- patterns
-- textures
-- colors
-
-7. Do NOT simply duplicate the original image.
-
-8. Do NOT mirror the original image.
-
-9. Do NOT create obvious repeating patterns.
-
-10. Do NOT create white empty strips.
-
-11. Do NOT put blurred side panels around the original design.
-
-12. Do NOT move important typography or logos into the expansion area.
-
-13. Do NOT add random text.
-
-14. Do NOT add watermarks.
-
-15. Preserve the original visual identity.
-
-The final result should look as if the original designer created the complete
-wide advertising layout from the beginning.
+The final artwork must look intentionally designed for the requested
+large-format advertising document.
 
 ${editPrompt}
 `;
 
     /*
-     * Tạo canvas trung gian theo tỷ lệ đích.
+     * Chuẩn bị canvas theo đúng tỷ lệ mục tiêu.
      */
-    const expansionCanvas = await createExpansionCanvas(
-      sourceBuffer,
-      finalTargetWidth,
-      finalTargetHeight
-    );
-
-    const workingImage =
-      bufferToDataUrl(expansionCanvas.buffer);
+    const expansionCanvas =
+      await createExpansionCanvas(
+        sourceBuffer,
+        finalTargetWidth,
+        finalTargetHeight
+      );
 
     /*
-     * Gửi canvas đã chuẩn bị cho AI.
+     * QUAN TRỌNG:
+     *
+     * OpenAI Images Edit yêu cầu FILE,
+     * không nhận Data URL string ở trường image.
      */
+    const imageFile = await toFile(
+      expansionCanvas.buffer,
+      "ai-design-print.png",
+      {
+        type: "image/png",
+      }
+    );
+
+    console.log("EDIT REQUEST", {
+      designType,
+      targetWidth: finalTargetWidth,
+      targetHeight: finalTargetHeight,
+      targetRatio,
+      layoutType,
+      sourceWidth: sourceInfo.width,
+      sourceHeight: sourceInfo.height,
+      workingWidth: expansionCanvas.width,
+      workingHeight: expansionCanvas.height,
+    });
+
     const response = await openai.images.edit({
       model: "gpt-image-2.5-sunburst",
-      image: workingImage,
+      image: imageFile,
       prompt: aspectPrompt,
       size: "auto",
       quality: "high",
@@ -455,16 +390,18 @@ ${editPrompt}
     const aiBuffer =
       Buffer.from(resultBase64, "base64");
 
-    const aiInfo = await getImageInfo(aiBuffer);
+    const aiInfo =
+      await getImageInfo(aiBuffer);
 
     /*
-     * Tạo file PNG cuối cùng theo đúng tỷ lệ tài liệu.
+     * Tạo PNG cuối cùng theo đúng tỷ lệ tài liệu.
      */
-    const finalResult = await createExactRatioImage(
-      aiBuffer,
-      finalTargetWidth,
-      finalTargetHeight
-    );
+    const finalResult =
+      await createFinalRatioImage(
+        aiBuffer,
+        finalTargetWidth,
+        finalTargetHeight
+      );
 
     const finalImage =
       bufferToDataUrl(finalResult.buffer);
