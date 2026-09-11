@@ -6,7 +6,8 @@ const openai = new OpenAI({
 
 // ------------------------------------------------------------
 // AI DESIGN PRINT
-// PANORAMA GENERATION ENGINE
+// PANORAMA GENERATION ENGINE V5
+// WITH REFERENCE IMAGE
 // ------------------------------------------------------------
 
 function getRatio(width, height) {
@@ -36,8 +37,6 @@ function classifyLayout(ratio) {
 // ------------------------------------------------------------
 
 function getOutputSize(ratio) {
-  // GPT Image giới hạn tỷ lệ ảnh.
-  // Panorama cực rộng sẽ dùng ảnh trung gian 3:1.
   if (ratio >= 3) {
     return "1536x512";
   }
@@ -61,7 +60,7 @@ function getOutputSize(ratio) {
 // PANORAMA COMPOSITION
 // ------------------------------------------------------------
 
-function buildPanoramaInstruction(ratio, designType) {
+function buildPanoramaInstruction(ratio) {
   if (ratio >= 5) {
     return `
 THIS IS AN EXTREME-WIDE PANORAMA ADVERTISING DESIGN.
@@ -73,63 +72,82 @@ DO NOT compose this as a centered poster.
 
 The composition MUST intentionally use the ENTIRE horizontal canvas.
 
-Think of the design as one continuous wide advertising scene:
-
 LEFT ZONE:
-- decorative visual elements
-- supporting imagery
+- supporting visual elements
+- secondary imagery
 - environmental details
-- patterns, light, shapes or secondary objects
-- enough visual interest to occupy the left side
+- decorative graphics
+- light effects
+- patterns
+- atmospheric details
 
 CENTER ZONE:
 - main advertising message
-- main subject or product
+- main subject
 - primary visual focus
 - strongest typography hierarchy
 
 RIGHT ZONE:
 - complementary imagery
-- decorative elements
+- secondary visual elements
 - environmental details
-- light effects, shapes, patterns or secondary objects
-- enough visual interest to occupy the right side
+- decorative graphics
+- light effects
+- patterns
+- atmospheric details
 
 IMPORTANT:
-- The left, center and right areas must visually connect.
-- They must look like ONE continuous advertising composition.
-- Do NOT create three separate panels.
-- Do NOT create a triptych.
-- Do NOT put all important content in the center.
-- Do NOT leave large empty areas on either side.
-- Do NOT stretch people, products, logos or objects.
-- Do NOT duplicate people, products, logos or major objects.
-- Do NOT mirror the same object on both sides.
-- Do NOT create artificial blank margins.
-- Do NOT make the artwork look like a small poster placed inside a huge canvas.
 
-The visual density should gradually flow from left to center to right.
+The left, center and right areas must visually connect.
 
-The main subject may be slightly off-center when that creates a stronger panoramic composition.
+They must look like ONE continuous advertising composition.
+
+Do NOT create three separate panels.
+
+Do NOT create a triptych.
+
+Do NOT put everything in the center.
+
+Do NOT leave large empty areas on either side.
+
+Do NOT stretch people.
+
+Do NOT stretch products.
+
+Do NOT stretch logos.
+
+Do NOT duplicate people.
+
+Do NOT duplicate products.
+
+Do NOT duplicate logos.
+
+Do NOT mirror major objects.
+
+Do NOT create artificial blank margins.
+
+Do NOT make the artwork look like a small poster placed inside a huge canvas.
+
+The visual density must flow naturally from left to center to right.
 
 Use:
+
 - continuous background
 - depth
 - lighting
 - decorative elements
 - secondary imagery
 - atmospheric details
-- subtle gradients
+- gradients
 - connected environmental elements
 
-to naturally fill the full horizontal space.
+to naturally fill the entire canvas.
 
-The extreme left and extreme right edges should contain supporting visual information,
-not empty background.
+The extreme left and extreme right edges should contain supporting visual information.
 
-Keep all important text, logos and faces safely away from the extreme edges.
+Keep important text, logos and faces safely away from the extreme edges.
 
-The result must look like a professionally designed large-format advertising backdrop/banner prepared for printing.
+The result must look like a professionally designed large-format advertising backdrop or banner.
 `;
   }
 
@@ -148,14 +166,18 @@ Use a strong central hierarchy while maintaining meaningful supporting visual el
 Everything must belong to ONE continuous scene.
 
 Do not create three panels.
+
 Do not create a triptych.
+
 Do not duplicate major objects.
+
 Do not stretch people, products or logos.
+
 Do not leave large empty areas at either side.
 
 Keep important text and subjects inside safe margins.
 
-The result should look like a professional large-format advertising banner/backdrop.
+The result should look like a professional large-format advertising banner or backdrop.
 `;
   }
 
@@ -219,6 +241,84 @@ Do not stretch people, products, logos or important objects.
 }
 
 // ------------------------------------------------------------
+// REFERENCE IMAGE INSTRUCTION
+// ------------------------------------------------------------
+
+function buildReferenceInstruction(hasReferenceImage) {
+  if (!hasReferenceImage) {
+    return `
+REFERENCE IMAGE:
+
+No reference image was provided.
+
+Create the artwork entirely from the client's written requirements and Design Plan.
+`;
+  }
+
+  return `
+REFERENCE IMAGE:
+
+A reference image has been provided by the client.
+
+IMPORTANT:
+
+You MUST visually inspect and use the provided reference image.
+
+The reference image is NOT merely an attachment for display.
+
+Treat it as a visual design reference.
+
+Analyze:
+
+- overall composition
+- layout structure
+- visual hierarchy
+- color direction
+- typography placement
+- subject placement
+- background treatment
+- decorative elements
+- lighting
+- atmosphere
+- proportions
+- design style
+
+Use the reference image as a strong visual guide.
+
+PRESERVE the important visual characteristics of the reference image when appropriate.
+
+However, do NOT blindly copy the image if doing so would conflict with:
+
+- requested dimensions
+- requested design type
+- client text
+- Design Plan
+- professional print composition
+
+If the reference image contains people, products, logos or important objects:
+
+- preserve their visual role
+- preserve their relative importance
+- preserve the overall composition where possible
+- do not randomly replace them
+- do not duplicate them
+- do not distort them
+
+If the reference is a layout example, reproduce the DESIGN LOGIC rather than simply placing the reference image itself onto the canvas.
+
+The final artwork must be a NEW PROFESSIONAL DESIGN based on the reference.
+
+Do NOT create a simple screenshot-like copy.
+
+Do NOT place the reference image inside another canvas.
+
+Do NOT create a mockup.
+
+Create the actual advertising artwork itself.
+`;
+}
+
+// ------------------------------------------------------------
 // PROMPT
 // ------------------------------------------------------------
 
@@ -231,15 +331,28 @@ function buildPrompt({
   style,
   ratio,
   layout,
+  designPlan,
+  hasReferenceImage,
 }) {
-  const panoramaInstruction = buildPanoramaInstruction(
-    ratio,
-    designType
-  );
+  const panoramaInstruction = buildPanoramaInstruction(ratio);
+
+  const referenceInstruction =
+    buildReferenceInstruction(hasReferenceImage);
+
+  const planText = designPlan
+    ? JSON.stringify(designPlan, null, 2)
+    : "No Design Plan available.";
 
   return `
-You are a senior professional advertising designer specializing in
-large-format printing, backdrops, banners, billboards and event graphics.
+You are a senior professional advertising designer specializing in:
+
+- large-format printing
+- advertising backdrops
+- banners
+- billboards
+- event graphics
+- commercial signage
+- professional print design
 
 PROJECT:
 AI DESIGN PRINT
@@ -262,40 +375,106 @@ ${style || "Hiện đại"}
 CLIENT CONTENT:
 ${prompt || "Create an attractive professional advertising design."}
 
+------------------------------------------------------------
+DESIGN PLAN FROM AI ART DIRECTOR
+------------------------------------------------------------
+
+${planText}
+
+------------------------------------------------------------
+REFERENCE IMAGE
+------------------------------------------------------------
+
+${referenceInstruction}
+
+------------------------------------------------------------
+PANORAMA COMPOSITION
+------------------------------------------------------------
+
 ${panoramaInstruction}
 
-GENERAL DESIGN RULES:
+------------------------------------------------------------
+GENERAL DESIGN RULES
+------------------------------------------------------------
 
 1. The requested physical dimensions are extremely important.
+
 2. Respect the intended aspect ratio.
+
 3. Compose for large-format printing.
+
 4. Keep typography highly readable.
+
 5. Establish clear visual hierarchy.
+
 6. Use professional spacing.
+
 7. Keep important content away from edges.
-8. Never distort human bodies, faces, products or logos.
-9. Never duplicate people, products, logos or major objects.
-10. Never create accidental mirrored objects.
-11. Never create a three-panel/triptych composition.
-12. Never place the entire design inside a small central area.
-13. The background must visually support the entire canvas.
-14. The composition must feel intentional from edge to edge.
-15. Use professional advertising aesthetics rather than generic AI artwork.
 
-FOR EXTREME-WIDE FORMATS:
+8. Never distort human bodies.
 
-The image must be designed as a PANORAMIC ADVERTISEMENT.
+9. Never distort faces.
 
-Imagine the final printed banner is physically stretched horizontally across
-a large wall or advertising frame.
+10. Never distort products.
+
+11. Never distort logos.
+
+12. Never duplicate people.
+
+13. Never duplicate products.
+
+14. Never duplicate logos.
+
+15. Never create accidental mirrored objects.
+
+16. Never create a three-panel or triptych composition.
+
+17. Never place the entire design inside a small central area.
+
+18. The background must visually support the entire canvas.
+
+19. The composition must feel intentional from edge to edge.
+
+20. Use professional advertising aesthetics rather than generic AI artwork.
+
+------------------------------------------------------------
+TEXT HIERARCHY
+------------------------------------------------------------
+
+The client's important text must be visually prominent.
+
+Use clear hierarchy:
+
+PRIMARY:
+Main headline.
+
+SECONDARY:
+Supporting information.
+
+TERTIARY:
+Additional information.
+
+Do not make all text the same size.
+
+Do not hide important text.
+
+Do not place important text directly against the edge.
+
+------------------------------------------------------------
+EXTREME-WIDE FORMATS
+------------------------------------------------------------
+
+For extremely wide designs:
+
+Think of the final artwork as a physical advertising banner stretched across a large wall.
 
 The left side, center and right side must all contain meaningful visual information.
 
-The center should carry the strongest message,
-while the sides should contain complementary graphics,
-environment, decorative elements and supporting imagery.
+The center should carry the strongest message.
 
-The three areas must connect naturally into one continuous scene.
+The sides should contain complementary graphics, environmental details, decorative elements and supporting imagery.
+
+All areas must connect naturally into ONE continuous visual scene.
 
 Do NOT simply place a normal poster in the middle and extend an empty background around it.
 
@@ -303,18 +482,58 @@ Do NOT intentionally leave large blank areas on the left or right.
 
 Do NOT use a border around the composition.
 
-Do NOT use a fake canvas or mockup.
+Do NOT use a fake canvas.
+
+Do NOT use a mockup.
 
 Create ONLY the artwork itself.
 
-FINAL QUALITY:
+------------------------------------------------------------
+REFERENCE IMAGE PRIORITY
+------------------------------------------------------------
+
+When a reference image is provided:
+
+The reference image is a major design instruction.
+
+Use it to understand the client's intended visual direction.
+
+Preserve the strongest characteristics of the reference while improving:
+
+- composition
+- readability
+- proportions
+- panoramic distribution
+- professional advertising quality
+- print suitability
+
+Do not ignore the reference.
+
+Do not treat it as decorative content.
+
+------------------------------------------------------------
+FINAL QUALITY
+------------------------------------------------------------
 
 Professional commercial advertising design.
+
 Clean composition.
+
 Strong hierarchy.
-Print-ready visual quality.
+
 Natural proportions.
+
 Balanced panoramic distribution.
+
+Professional typography placement.
+
+Professional lighting.
+
+Professional visual hierarchy.
+
+Print-oriented visual quality.
+
+The final result must look intentionally designed by a professional advertising designer.
 `;
 }
 
@@ -338,6 +557,8 @@ export default async function handler(req, res) {
       prompt = "",
       style = "Hiện đại",
       aspectRatio,
+      uploadedImage,
+      designPlan,
     } = req.body || {};
 
     const w = Number(width);
@@ -355,7 +576,12 @@ export default async function handler(req, res) {
         : getRatio(w, h);
 
     const layout = classifyLayout(ratio);
+
     const outputSize = getOutputSize(ratio);
+
+    const hasReferenceImage =
+      typeof uploadedImage === "string" &&
+      uploadedImage.startsWith("data:image/");
 
     const finalPrompt = buildPrompt({
       designType,
@@ -366,47 +592,103 @@ export default async function handler(req, res) {
       style,
       ratio,
       layout,
+      designPlan,
+      hasReferenceImage,
     });
 
     console.log("========================================");
-    console.log("AI DESIGN PRINT PANORAMA GENERATE");
+    console.log("AI DESIGN PRINT GENERATE V5");
     console.log("width:", w);
     console.log("height:", h);
     console.log("unit:", unit);
     console.log("ratio:", ratio);
     console.log("layout:", layout);
     console.log("outputSize:", outputSize);
+    console.log("hasReferenceImage:", hasReferenceImage);
+    console.log("hasDesignPlan:", Boolean(designPlan));
     console.log("========================================");
 
-    const result = await openai.images.generate({
-      model: "gpt-image-2",
-      prompt: finalPrompt,
-      size: outputSize,
-      quality: "high",
-      output_format: "png",
-    });
+    // --------------------------------------------------------
+    // BUILD IMAGE GENERATION REQUEST
+    // --------------------------------------------------------
 
-    const imageBase64 = result?.data?.[0]?.b64_json;
+    let result;
 
-    if (!imageBase64) {
-      throw new Error("AI không trả về hình ảnh.");
+    if (hasReferenceImage) {
+      console.log("REFERENCE IMAGE: ENABLED");
+
+      result = await openai.images.generate({
+        model: "gpt-image-2",
+
+        prompt: finalPrompt,
+
+        size: outputSize,
+
+        quality: "high",
+
+        output_format: "png",
+
+        input_images: [
+          uploadedImage,
+        ],
+      });
+    } else {
+      console.log("REFERENCE IMAGE: NOT PROVIDED");
+
+      result = await openai.images.generate({
+        model: "gpt-image-2",
+
+        prompt: finalPrompt,
+
+        size: outputSize,
+
+        quality: "high",
+
+        output_format: "png",
+      });
     }
 
-    const image = `data:image/png;base64,${imageBase64}`;
+    const imageBase64 =
+      result?.data?.[0]?.b64_json;
+
+    if (!imageBase64) {
+      throw new Error(
+        "AI không trả về hình ảnh."
+      );
+    }
+
+    const image =
+      "data:image/png;base64," +
+      imageBase64;
 
     return res.status(200).json({
       image,
+
       width: w,
+
       height: h,
+
       unit,
+
       ratio,
+
       layout,
+
       outputSize,
-      needsOutpaint: ratio >= 2.5 || ratio <= 0.7,
-      promptVersion: "AI-DESIGN-PRINT-V4-PANORAMA-DISTRIBUTED",
+
+      hasReferenceImage,
+
+      needsOutpaint:
+        ratio >= 2.5 ||
+        ratio <= 0.7,
+
+      promptVersion:
+        "AI-DESIGN-PRINT-V5-REFERENCE-IMAGE-PANORAMA",
     });
   } catch (error) {
-    console.error("AI DESIGN PRINT GENERATE ERROR:");
+    console.error(
+      "AI DESIGN PRINT GENERATE ERROR:"
+    );
 
     console.error(error);
 
