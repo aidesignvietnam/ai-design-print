@@ -1,6 +1,7 @@
 import OpenAI from "openai";
+import sharp from "sharp";
 
-const client = new OpenAI({
+const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
@@ -21,365 +22,257 @@ export default async function handler(req, res) {
       style = "Hiện đại",
     } = req.body || {};
 
-    // --------------------------------------------------
-    // 1. KIỂM TRA KÍCH THƯỚC
-    // --------------------------------------------------
-
     const w = Number(width);
     const h = Number(height);
 
-    if (
-      !Number.isFinite(w) ||
-      !Number.isFinite(h) ||
-      w <= 0 ||
-      h <= 0
-    ) {
+    if (!w || !h || w <= 0 || h <= 0) {
       return res.status(400).json({
-        error: "Kích thước W × H không hợp lệ.",
+        error: "Kích thước thiết kế không hợp lệ.",
       });
     }
 
-    // --------------------------------------------------
-    // 2. TÍNH TỶ LỆ THỰC
-    // --------------------------------------------------
-
     const aspectRatio = w / h;
 
-    // --------------------------------------------------
-    // 3. XÁC ĐỊNH LOẠI BỐ CỤC
-    // --------------------------------------------------
+    /*
+     * Phân loại tỷ lệ thiết kế
+     */
+    let layoutType = "SQUARE";
 
-    let layoutType = "";
-    let layoutInstruction = "";
-
-    if (aspectRatio >= 5) {
-      layoutType = "EXTREME PANORAMIC";
-
-      layoutInstruction = `
-EXTREMELY WIDE PANORAMIC ADVERTISING BANNER.
-
-The physical design ratio is:
-${w} × ${h} ${unit}
-
-Exact ratio:
-${aspectRatio.toFixed(4)} : 1
-
-This is an extremely wide horizontal advertising banner.
-
-IMPORTANT:
-- The composition MUST be strongly horizontal.
-- Extend the visual composition across the entire width.
-- Do NOT create a square image.
-- Do NOT create a 1:1 composition.
-- Do NOT create a 4:3 composition.
-- Do NOT create a 3:2 composition.
-- Do NOT create a normal poster.
-- Do NOT place everything in the center.
-- Spread visual elements naturally from LEFT to RIGHT.
-- Keep important text readable across the wide canvas.
-- Leave safe margins around important text.
-`;
-    } else if (aspectRatio >= 2.5) {
-      layoutType = "WIDE PANORAMIC";
-
-      layoutInstruction = `
-WIDE PANORAMIC ADVERTISING DESIGN.
-
-Physical size:
-${w} × ${h} ${unit}
-
-Exact ratio:
-${aspectRatio.toFixed(4)} : 1
-
-Create a strongly horizontal advertising composition.
-
-Use the full width of the canvas.
-
-Avoid:
-- square composition
-- portrait composition
-- 3:2 poster composition
-- centered compact composition
-
-Spread the visual hierarchy across the entire horizontal canvas.
-`;
+    if (aspectRatio >= 4) {
+      layoutType = "ULTRA_WIDE";
+    } else if (aspectRatio >= 2) {
+      layoutType = "WIDE";
     } else if (aspectRatio >= 1.15) {
       layoutType = "LANDSCAPE";
-
-      layoutInstruction = `
-HORIZONTAL LANDSCAPE ADVERTISING DESIGN.
-
-Physical size:
-${w} × ${h} ${unit}
-
-Exact ratio:
-${aspectRatio.toFixed(4)} : 1
-
-Create a horizontal advertising composition.
-
-Use the entire canvas width and height.
-
-Keep all important information inside safe margins.
-`;
-    } else if (aspectRatio <= 0.2) {
-      layoutType = "EXTREME VERTICAL";
-
-      layoutInstruction = `
-EXTREMELY TALL VERTICAL ADVERTISING DESIGN.
-
-Physical size:
-${w} × ${h} ${unit}
-
-Exact ratio:
-${aspectRatio.toFixed(4)} : 1
-
-Create an extremely tall vertical advertising composition.
-
-Do NOT create a square image.
-Do NOT create a landscape image.
-
-Use the full vertical space.
-`;
-    } else if (aspectRatio <= 0.55) {
-      layoutType = "TALL VERTICAL";
-
-      layoutInstruction = `
-TALL VERTICAL ADVERTISING DESIGN.
-
-Physical size:
-${w} × ${h} ${unit}
-
-Exact ratio:
-${aspectRatio.toFixed(4)} : 1
-
-Create a strong vertical advertising composition.
-
-Use the full height of the canvas.
-`;
-    } else if (aspectRatio < 0.87) {
+    } else if (aspectRatio <= 0.5) {
+      layoutType = "ULTRA_TALL";
+    } else if (aspectRatio <= 0.87) {
       layoutType = "PORTRAIT";
+    }
 
+    /*
+     * Chọn kích thước ảnh AI phù hợp.
+     *
+     * Lưu ý:
+     * GPT Image không phải lúc nào cũng tạo trực tiếp
+     * được tỷ lệ cực rộng như 400:70.
+     *
+     * Vì vậy với banner cực rộng, ta tạo artwork nền
+     * theo hướng landscape trước, sau đó bước xử lý
+     * tiếp theo sẽ dùng Sharp + AI edit để hoàn thiện
+     * tỷ lệ thật.
+     */
+    let outputSize = "1536x1024";
+
+    if (layoutType === "PORTRAIT" || layoutType === "ULTRA_TALL") {
+      outputSize = "1024x1536";
+    } else if (layoutType === "SQUARE") {
+      outputSize = "1024x1024";
+    } else {
+      outputSize = "1536x1024";
+    }
+
+    /*
+     * Hướng dẫn bố cục cho AI
+     */
+    let layoutInstruction = "";
+
+    if (layoutType === "ULTRA_WIDE") {
       layoutInstruction = `
-PORTRAIT ADVERTISING DESIGN.
+ULTRA-WIDE PRINT BANNER.
 
-Physical size:
-${w} × ${h} ${unit}
+The requested physical design ratio is approximately:
+${w}:${h} ${unit}
+= ${aspectRatio.toFixed(3)}:1.
 
-Exact ratio:
-${aspectRatio.toFixed(4)} : 1
+This is an extremely wide advertising banner.
 
-Create a vertical advertising composition.
+IMPORTANT COMPOSITION RULES:
+- Design for a very wide horizontal advertising format.
+- Keep the main subject, people, logo and important text concentrated around the central safe area.
+- Use generous empty/background space toward the left and right sides.
+- Extend scenery, gradients, lighting, decorative elements and background naturally toward both sides.
+- Do NOT place important objects close to the top or bottom edge.
+- Do NOT create a tall poster composition.
+- Do NOT squeeze the design vertically.
+- Do NOT stretch people, products, logos or typography.
+- The composition must visually feel like a professional large-format outdoor advertising banner.
+- Leave enough visual flexibility for later horizontal AI expansion.
+`;
+    } else if (layoutType === "WIDE") {
+      layoutInstruction = `
+WIDE HORIZONTAL PRINT DESIGN.
 
-Use the entire canvas.
+Requested ratio:
+${aspectRatio.toFixed(3)}:1.
+
+Use a horizontal advertising composition.
+Keep important subjects and typography well balanced.
+Avoid placing critical elements near the edges.
+Use background space intelligently.
+`;
+    } else if (
+      layoutType === "PORTRAIT" ||
+      layoutType === "ULTRA_TALL"
+    ) {
+      layoutInstruction = `
+VERTICAL PRINT DESIGN.
+
+Requested ratio:
+${aspectRatio.toFixed(3)}:1.
+
+Use a professional vertical advertising composition.
+Keep important text and subjects inside a safe central area.
+Do not crop important elements.
 `;
     } else {
-      layoutType = "NEAR SQUARE";
-
       layoutInstruction = `
-BALANCED ADVERTISING DESIGN.
+BALANCED PRINT DESIGN.
 
-Physical size:
-${w} × ${h} ${unit}
+Requested ratio:
+${aspectRatio.toFixed(3)}:1.
 
-Exact ratio:
-${aspectRatio.toFixed(4)} : 1
-
-Create a balanced composition using the entire canvas.
+Create a balanced professional advertising composition.
 `;
     }
 
-    // --------------------------------------------------
-    // 4. TẠO PROMPT CHO GPT-IMAGE-2
-    // --------------------------------------------------
-
+    /*
+     * Prompt chính
+     */
     const designPrompt = `
-You are a professional commercial advertising graphic designer.
+You are a professional advertising graphic designer specializing
+in large-format printing, backdrops, banners, signs and commercial
+advertising layouts.
 
-Create a professional advertising artwork for large-format printing.
-
-==================================================
-DESIGN INFORMATION
-==================================================
+Create a polished professional advertising design.
 
 DESIGN TYPE:
 ${designType}
 
-PHYSICAL WIDTH:
-${w} ${unit}
+PHYSICAL SIZE:
+${w} × ${h} ${unit}
 
-PHYSICAL HEIGHT:
-${h} ${unit}
+TARGET ASPECT RATIO:
+${aspectRatio.toFixed(4)}:1
 
-EXACT ASPECT RATIO:
-${aspectRatio.toFixed(4)} : 1
+STYLE:
+${style}
 
-LAYOUT TYPE:
-${layoutType}
-
-==================================================
-LAYOUT
-==================================================
+USER CONTENT:
+${prompt || "Create an attractive professional design suitable for printing."}
 
 ${layoutInstruction}
 
-==================================================
-VISUAL STYLE
-==================================================
+GENERAL DESIGN RULES:
 
-${style}
+1. Create a professional commercial advertising layout.
+2. Make the design visually attractive and immediately readable.
+3. Use strong visual hierarchy.
+4. Keep important text highly legible.
+5. Use appropriate typography for large-format printing.
+6. Maintain clean spacing and alignment.
+7. Keep the main subject visually clear.
+8. Do not overcrowd the composition.
+9. Do not create unnecessary objects.
+10. Do not distort people, products, logos or text.
+11. Do not use random unreadable pseudo-text.
+12. Avoid placing critical information too close to the edges.
+13. Design with large-format printing in mind.
+14. Maintain clean professional edges.
+15. The result should look like work produced by a professional advertising designer.
 
-==================================================
-USER DESIGN REQUEST
-==================================================
+IMPORTANT FOR EXTREME RATIOS:
 
-${prompt || "Create an attractive professional advertising design suitable for printing."}
+When the requested design is extremely wide or extremely tall,
+do not try to force all content into a normal poster composition.
 
-==================================================
-PROFESSIONAL DESIGN REQUIREMENTS
-==================================================
+Instead:
+- simplify the central composition,
+- keep the main visual elements in a safe area,
+- use expandable background areas,
+- allow scenery, gradients, lighting and decorative elements
+  to continue naturally,
+- avoid critical details at the extreme edges.
 
-1. Respect the requested physical W × H ratio.
+The final artwork must be suitable for further aspect-ratio
+processing without stretching or distorting the actual design elements.
 
-2. The visual composition must strongly match the requested aspect ratio.
-
-3. Use the entire available canvas.
-
-4. Do not create a generic square image unless the requested ratio is near square.
-
-5. Do not create a generic 3:2 poster composition.
-
-6. Do not unnecessarily crop important subjects.
-
-7. Keep important text and logos inside safe margins.
-
-8. Create strong visual hierarchy.
-
-9. Make important typography large and readable.
-
-10. Use professional commercial advertising design principles.
-
-11. The design should look suitable for Vietnamese advertising.
-
-12. Use professional spacing and alignment.
-
-13. Avoid unnecessary decorative borders.
-
-14. Avoid empty unused areas unless intentionally required by the design.
-
-15. No watermark.
-
-16. No mockup.
-
-17. No photograph of the printed banner.
-
-18. Create the actual flat advertising artwork.
-
-19. The result must look like artwork that can be sent to a printing company.
-
-20. IMPORTANT:
-The requested ratio is ${aspectRatio.toFixed(4)} : 1.
-Do not reinterpret the requested design as a square, portrait,
-or ordinary landscape poster.
-
-==================================================
-TEXT HANDLING
-==================================================
-
-If the user provides text:
-
-- Preserve the requested wording as accurately as possible.
-- Make important text prominent.
-- Use clear Vietnamese-friendly typography.
-- Do not randomly invent important names, phone numbers,
-  addresses, dates or event information.
-- Do not hide important text behind decorative elements.
-
-==================================================
-FINAL OUTPUT
-==================================================
-
-Generate one professional advertising artwork.
-
-The composition should visually correspond to:
-
-${w} × ${h} ${unit}
-
-Ratio:
-
-${aspectRatio.toFixed(4)} : 1
+Generate the best possible professional advertising artwork.
 `;
 
-    // --------------------------------------------------
-    // 5. CHỌN KÍCH THƯỚC OUTPUT
-    // --------------------------------------------------
-    //
-    // GPT-Image-2 có các kích thước output giới hạn.
-    // Chúng ta chọn hướng phù hợp với thiết kế.
-    //
-    // Không dùng 1536x1024 cho mọi thiết kế nữa.
-    // --------------------------------------------------
+    console.log("GENERATE REQUEST:", {
+      designType,
+      width: w,
+      height: h,
+      unit,
+      style,
+      aspectRatio,
+      layoutType,
+      outputSize,
+    });
 
-    let outputSize = "1024x1024";
-
-    if (aspectRatio >= 1.15) {
-      outputSize = "1536x1024";
-    } else if (aspectRatio < 0.87) {
-      outputSize = "1024x1536";
-    } else {
-      outputSize = "1024x1024";
-    }
-
-    // --------------------------------------------------
-    // 6. GỌI GPT-IMAGE-2
-    // --------------------------------------------------
-
-    const result = await client.images.generate({
+    const response = await openai.images.generate({
       model: "gpt-image-2",
       prompt: designPrompt,
       size: outputSize,
       quality: "medium",
     });
 
-    // --------------------------------------------------
-    // 7. LẤY ẢNH BASE64
-    // --------------------------------------------------
-
-    const imageBase64 = result.data?.[0]?.b64_json;
+    const imageBase64 = response.data?.[0]?.b64_json;
 
     if (!imageBase64) {
-      return res.status(500).json({
-        error: "AI không trả về hình ảnh.",
-      });
+      throw new Error("OpenAI không trả về ảnh.");
     }
 
-    // --------------------------------------------------
-    // 8. TRẢ KẾT QUẢ VỀ FRONTEND
-    // --------------------------------------------------
+    /*
+     * Kiểm tra kích thước ảnh thực tế bằng Sharp.
+     */
+    const inputBuffer = Buffer.from(imageBase64, "base64");
+
+    const metadata = await sharp(inputBuffer).metadata();
+
+    const sourceWidth = metadata.width || 0;
+    const sourceHeight = metadata.height || 0;
+
+    /*
+     * Tỷ lệ thực tế của ảnh AI
+     */
+    const sourceAspectRatio =
+      sourceHeight > 0
+        ? sourceWidth / sourceHeight
+        : 0;
+
+    console.log("GENERATED IMAGE:", {
+      sourceWidth,
+      sourceHeight,
+      sourceAspectRatio,
+      targetAspectRatio: aspectRatio,
+    });
 
     return res.status(200).json({
-      success: true,
-
       image: `data:image/png;base64,${imageBase64}`,
 
       width: w,
-
       height: h,
-
       unit,
 
       aspectRatio,
+      layoutType,
+
+      sourceWidth,
+      sourceHeight,
+      sourceAspectRatio,
 
       outputSize,
-
-      layoutType,
     });
+
   } catch (error) {
-    console.error("OpenAI image generation error:", error);
+    console.error("GENERATE ERROR:", error);
 
     return res.status(500).json({
       error:
         error?.message ||
-        "Không thể tạo thiết kế bằng AI.",
+        "Không thể tạo thiết kế AI.",
     });
   }
 }
