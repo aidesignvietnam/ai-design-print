@@ -30,8 +30,7 @@ function classifyLayout(ratio) {
  * không dùng resize fill để ép méo hình.
  */
 function getOutputSize(ratio) {
-  const MAX = 4096;
-  const MIN = 1024;
+  const MAX = 3840;
 
   let width;
   let height;
@@ -44,28 +43,23 @@ function getOutputSize(ratio) {
     width = Math.round(height * ratio);
   }
 
-  /*
-   * Giữ kích thước trong vùng hợp lý.
-   */
-  if (width < MIN) {
-    width = MIN;
-    height = Math.round(width / ratio);
-  }
-
-  if (height < MIN) {
-    height = MIN;
-    width = Math.round(height * ratio);
-  }
-
-  /*
-   * Làm tròn về bội số 16 để ảnh ổn định hơn.
-   */
+  // Làm tròn về bội số 16
   width = Math.max(16, Math.round(width / 16) * 16);
   height = Math.max(16, Math.round(height / 16) * 16);
 
+  // Bảo đảm cạnh dài không vượt quá 3840
+  if (width > MAX) {
+    width = MAX;
+    height = Math.max(16, Math.round(width / ratio / 16) * 16);
+  }
+
+  if (height > MAX) {
+    height = MAX;
+    width = Math.max(16, Math.round(height * ratio / 16) * 16);
+  }
+
   return `${width}x${height}`;
 }
-
 function buildLayoutInstruction({
   designType,
   style,
