@@ -1,3 +1,4 @@
+```javascript
 import OpenAI from "openai";
 import sharp from "sharp";
 import { toFile } from "openai/uploads";
@@ -14,14 +15,32 @@ function getRatio(width, height) {
   return Number(width) / Number(height);
 }
 
+/*
+ * GPT-Image-2 hỗ trợ kích thước linh hoạt.
+ *
+ * Chọn canvas tối đa 3840px và làm tròn chiều còn lại
+ * theo bội số 16 để giữ đúng tỷ lệ tốt nhất.
+ */
 function getTargetSize(width, height) {
   const ratio = getRatio(width, height);
 
-  const targetWidth = 1536;
-  const targetHeight = Math.max(
-    256,
-    Math.round(targetWidth / ratio)
-  );
+  const maxDimension = 3840;
+
+  let targetWidth;
+  let targetHeight;
+
+  if (ratio >= 1) {
+    targetWidth = maxDimension;
+    targetHeight =
+      Math.round((targetWidth / ratio) / 16) * 16;
+  } else {
+    targetHeight = maxDimension;
+    targetWidth =
+      Math.round((targetHeight * ratio) / 16) * 16;
+  }
+
+  targetWidth = Math.max(256, targetWidth);
+  targetHeight = Math.max(256, targetHeight);
 
   return {
     width: targetWidth,
@@ -46,7 +65,7 @@ TARGET PRINT FORMAT:
 ${width} ${unit} × ${height} ${unit}
 
 TARGET ASPECT RATIO:
-${ratio.toFixed(3)} : 1
+${ratio.toFixed(4)} : 1
 
 DESIGN TYPE:
 ${designType || "Banner"}
@@ -59,43 +78,55 @@ ${content || "Professional advertising design."}
 
 TASK:
 
-Extend the existing artwork naturally into the masked areas.
+Expand the existing artwork into the transparent/masked areas.
 
-The existing artwork contains the important advertising
-content and must remain visually coherent.
+IMPORTANT:
 
-DO NOT redesign the existing artwork.
+Preserve the existing artwork exactly.
 
-DO NOT create a second version of the artwork.
+Do NOT resize or distort the existing people,
+products, objects, logos, or typography.
 
-DO NOT duplicate the main subject.
+Do NOT make people shorter or taller.
 
-DO NOT duplicate people.
+Do NOT stretch faces or bodies.
 
-DO NOT duplicate products.
+Do NOT stretch products.
 
-DO NOT duplicate logos.
+Do NOT change the proportions of important objects.
 
-DO NOT duplicate typography.
+Do NOT redesign the existing composition.
 
-DO NOT create three panels.
+Do NOT create a second version of the design.
 
-DO NOT create a triptych.
+Do NOT duplicate the main subject.
 
-DO NOT mirror the original design.
+Do NOT duplicate people.
 
-DO NOT create a central frame.
+Do NOT duplicate products.
 
-DO NOT create a border.
+Do NOT duplicate logos.
 
-DO NOT create a mockup.
+Do NOT duplicate typography.
 
-DO NOT create a wall or billboard presentation.
+Do NOT create three panels.
 
-The masked areas should become a natural continuation of
-the existing visual environment.
+Do NOT create a triptych.
 
-Continue compatible:
+Do NOT mirror the artwork.
+
+Do NOT create a central frame.
+
+Do NOT create a border.
+
+Do NOT create a mockup.
+
+Do NOT create a wall or billboard presentation.
+
+The masked areas must become a natural continuation
+of the existing background and environment.
+
+Continue naturally:
 - background
 - lighting
 - gradients
@@ -104,23 +135,26 @@ Continue compatible:
 - textures
 - decorative elements
 - atmosphere
+- colors
+- depth
 
-Preserve the original advertising concept.
+The original important advertising content must remain
+in its original proportions.
 
-The main subject should appear only once.
+The main subject must appear only once.
 
-The final result must look like ONE continuous professional
-large-format advertising artwork.
+The final artwork must look like ONE continuous
+professional large-format advertising design.
 
-Do not stretch people.
+The final composition must fill the entire target canvas.
 
-Do not stretch products.
+No empty white areas.
 
-Do not distort important objects.
+No black bars.
 
-Do not add unrelated text.
+No unrelated text.
 
-Do not add watermarks.
+No watermarks.
 
 The result will be printed as a large-format advertising banner.
 `;
@@ -213,9 +247,11 @@ export default async function handler(req, res) {
         physicalWidth: width,
         physicalHeight: height,
         unit,
+
         originalWidth,
         originalHeight,
         originalRatio,
+
         targetWidth: target.width,
         targetHeight: target.height,
         targetRatio,
@@ -223,25 +259,22 @@ export default async function handler(req, res) {
     );
 
     /*
-     * ------------------------------------------------
-     * Tạo canvas đúng tỷ lệ.
+     * =================================================
+     * 1. Đưa ảnh gốc vào canvas mới.
      *
-     * Ảnh gốc được đặt vào giữa nhưng KHÔNG kéo méo.
-     * Phần còn thiếu trở thành vùng cần AI mở rộng.
-     * ------------------------------------------------
+     * QUAN TRỌNG:
+     * Không dùng "fill".
+     * Không kéo méo ảnh.
+     *
+     * Ảnh gốc được giữ nguyên tỷ lệ.
+     * =================================================
      */
 
     const fitted =
       await sharp(originalBuffer)
         .resize({
-          width: Math.min(
-            originalWidth,
-            target.width
-          ),
-          height: Math.min(
-            originalHeight,
-            target.height
-          ),
+          width: target.width,
+          height: target.height,
           fit: "inside",
           withoutEnlargement: false,
         })
@@ -257,8 +290,23 @@ export default async function handler(req, res) {
     const fittedHeight =
       fittedMeta.height || originalHeight;
 
+    const left =
+      Math.round(
+        (target.width - fittedWidth) / 2
+      );
+
+    const top =
+      Math.round(
+        (target.height - fittedHeight) / 2
+      );
+
     /*
-     * Canvas trong suốt.
+     * =================================================
+     * 2. Tạo canvas trong suốt.
+     *
+     * Phần ảnh gốc nằm giữa.
+     * Phần ngoài là vùng AI phải mở rộng.
+     * =================================================
      */
 
     const canvas =
@@ -278,35 +326,28 @@ export default async function handler(req, res) {
         .composite([
           {
             input: fitted,
-            left: Math.round(
-              (target.width - fittedWidth) / 2
-            ),
-            top: Math.round(
-              (target.height - fittedHeight) / 2
-            ),
+            left,
+            top,
           },
         ])
         .png()
         .toBuffer();
 
     /*
-     * ------------------------------------------------
-     * Mask:
+     * =================================================
+     * 3. Tạo MASK ĐÚNG cho OpenAI.
      *
-     * Trắng = vùng AI được phép mở rộng.
-     * Đen = vùng artwork gốc cần bảo vệ.
-     * ------------------------------------------------
+     * OpenAI:
+     *
+     * TRANSPARENT = AI được phép chỉnh / mở rộng
+     * OPAQUE      = giữ nguyên artwork gốc
+     *
+     * Vì vậy:
+     *
+     * - Toàn bộ canvas = transparent
+     * - Vị trí artwork gốc = opaque
+     * =================================================
      */
-
-    const left =
-      Math.round(
-        (target.width - fittedWidth) / 2
-      );
-
-    const top =
-      Math.round(
-        (target.height - fittedHeight) / 2
-      );
 
     const mask =
       await sharp({
@@ -314,31 +355,34 @@ export default async function handler(req, res) {
           width: target.width,
           height: target.height,
           channels: 4,
+
           background: {
-            r: 255,
-            g: 255,
-            b: 255,
-            alpha: 1,
+            r: 0,
+            g: 0,
+            b: 0,
+            alpha: 0,
           },
         },
       })
         .composite([
           {
-            input: await sharp({
-              create: {
-                width: fittedWidth,
-                height: fittedHeight,
-                channels: 4,
-                background: {
-                  r: 0,
-                  g: 0,
-                  b: 0,
-                  alpha: 1,
+            input:
+              await sharp({
+                create: {
+                  width: fittedWidth,
+                  height: fittedHeight,
+                  channels: 4,
+
+                  background: {
+                    r: 255,
+                    g: 255,
+                    b: 255,
+                    alpha: 1,
+                  },
                 },
-              },
-            })
-              .png()
-              .toBuffer(),
+              })
+                .png()
+                .toBuffer(),
 
             left,
             top,
@@ -348,9 +392,9 @@ export default async function handler(req, res) {
         .toBuffer();
 
     /*
-     * ------------------------------------------------
-     * Gửi canvas + mask cho GPT-Image-2.
-     * ------------------------------------------------
+     * =================================================
+     * 4. Gửi canvas + mask cho GPT-Image-2.
+     * =================================================
      */
 
     const imageFile = await toFile(
@@ -389,7 +433,12 @@ export default async function handler(req, res) {
 
         prompt,
 
-        size: "auto",
+        /*
+         * Yêu cầu AI trả về đúng canvas mục tiêu.
+         * Không dùng auto vì auto có thể trả về tỷ lệ khác.
+         */
+        size:
+          `${target.width}x${target.height}`,
 
         quality: "high",
 
@@ -412,34 +461,162 @@ export default async function handler(req, res) {
       );
 
     /*
-     * ------------------------------------------------
-     * Chuẩn hóa kích thước cuối cùng.
+     * =================================================
+     * 5. Kiểm tra kích thước AI trả về.
      *
-     * Không dùng cover/stretch.
-     * Chỉ resize về đúng canvas đã yêu cầu.
-     * ------------------------------------------------
+     * TUYỆT ĐỐI KHÔNG dùng fit:"fill".
+     *
+     * Nếu AI đã trả đúng canvas -> dùng nguyên ảnh.
+     *
+     * Nếu khác kích thước nhưng cùng tỷ lệ ->
+     * resize theo tỷ lệ, không bóp méo.
+     *
+     * Nếu khác tỷ lệ quá nhiều ->
+     * báo lỗi thay vì tạo ảnh bị lùn.
+     * =================================================
      */
 
-    const finalImage =
-      await sharp(resultBuffer)
-        .resize(
-          target.width,
-          target.height,
-          {
-            fit: "fill",
-          }
-        )
+    const resultMeta =
+      await sharp(resultBuffer).metadata();
+
+    const resultWidth =
+      resultMeta.width || 0;
+
+    const resultHeight =
+      resultMeta.height || 0;
+
+    if (!resultWidth || !resultHeight) {
+      throw new Error(
+        "Không đọc được kích thước ảnh AI trả về."
+      );
+    }
+
+    const resultRatio =
+      resultWidth / resultHeight;
+
+    const ratioDifference =
+      Math.abs(
+        resultRatio - targetRatio
+      ) / targetRatio;
+
+    console.log(
+      "AI RESULT SIZE",
+      {
+        resultWidth,
+        resultHeight,
+        resultRatio,
+        targetWidth: target.width,
+        targetHeight: target.height,
+        targetRatio,
+        ratioDifference,
+      }
+    );
+
+    let finalImage;
+
+    /*
+     * Trường hợp đúng kích thước.
+     */
+    if (
+      resultWidth === target.width &&
+      resultHeight === target.height
+    ) {
+      finalImage = await sharp(
+        resultBuffer
+      )
         .png()
         .toBuffer();
+    }
+
+    /*
+     * Trường hợp khác pixel nhưng tỷ lệ vẫn gần đúng.
+     *
+     * Resize theo tỷ lệ, KHÔNG stretch.
+     */
+    else if (ratioDifference <= 0.02) {
+      finalImage =
+        await sharp(resultBuffer)
+          .resize({
+            width: target.width,
+            height: target.height,
+            fit: "inside",
+            withoutEnlargement: false,
+          })
+          .png()
+          .toBuffer();
+
+      /*
+       * Sau resize có thể nhỏ hơn canvas một chút.
+       * Đặt lên canvas đúng kích thước mà không kéo méo.
+       */
+      const finalMeta =
+        await sharp(finalImage).metadata();
+
+      const finalWidth =
+        finalMeta.width || target.width;
+
+      const finalHeight =
+        finalMeta.height || target.height;
+
+      if (
+        finalWidth !== target.width ||
+        finalHeight !== target.height
+      ) {
+        finalImage =
+          await sharp({
+            create: {
+              width: target.width,
+              height: target.height,
+              channels: 4,
+              background: {
+                r: 255,
+                g: 255,
+                b: 255,
+                alpha: 0,
+              },
+            },
+          })
+            .composite([
+              {
+                input: finalImage,
+                left: Math.round(
+                  (target.width - finalWidth) / 2
+                ),
+                top: Math.round(
+                  (target.height - finalHeight) / 2
+                ),
+              },
+            ])
+            .png()
+            .toBuffer();
+      }
+    }
+
+    /*
+     * AI trả về tỷ lệ sai quá nhiều.
+     *
+     * Không ép ảnh.
+     * Báo lỗi để tránh xuất ra hình bị lùn.
+     */
+    else {
+      throw new Error(
+        `AI trả về tỷ lệ ${resultRatio.toFixed(
+          3
+        )}, khác tỷ lệ yêu cầu ${targetRatio.toFixed(
+          3
+        )}. Hệ thống không ép méo ảnh.`
+      );
+    }
 
     const finalMeta =
       await sharp(finalImage).metadata();
 
     console.log(
-      "ASPECT EDIT RESULT",
+      "ASPECT EDIT FINAL",
       {
         width: finalMeta.width,
         height: finalMeta.height,
+
         ratio:
           finalMeta.width /
           finalMeta.height,
@@ -464,10 +641,10 @@ export default async function handler(req, res) {
         finalMeta.height,
 
       method:
-        "AI_MASK_OUTPAINT",
+        "AI_MASK_OUTPAINT_NO_STRETCH",
 
       promptVersion:
-        "AI-DESIGN-PRINT-OUTPAINT-V1",
+        "AI-DESIGN-PRINT-OUTPAINT-V2",
     });
 
   } catch (error) {
@@ -483,3 +660,4 @@ export default async function handler(req, res) {
     });
   }
 }
+```
