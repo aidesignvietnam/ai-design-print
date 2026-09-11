@@ -5,9 +5,39 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-/* =========================================
-   TÍNH TỶ LỆ
-========================================= */
+// =====================================================
+// DATA URL → BUFFER
+// =====================================================
+
+function dataUrlToBuffer(dataUrl) {
+  if (
+    typeof dataUrl !== "string" ||
+    !dataUrl.startsWith("data:image/")
+  ) {
+    throw new Error(
+      "Ảnh thiết kế đầu vào không hợp lệ."
+    );
+  }
+
+  const match = dataUrl.match(
+    /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/
+  );
+
+  if (!match) {
+    throw new Error(
+      "Không đọc được dữ liệu ảnh thiết kế."
+    );
+  }
+
+  return Buffer.from(
+    match[2],
+    "base64"
+  );
+}
+
+// =====================================================
+// TÍNH TỶ LỆ
+// =====================================================
 
 function getRatio(width, height) {
   const w = Number(width);
@@ -19,50 +49,56 @@ function getRatio(width, height) {
     w <= 0 ||
     h <= 0
   ) {
-    throw new Error("Kích thước không hợp lệ.");
+    return 1;
   }
 
   return w / h;
 }
 
-/* =========================================
-   KÍCH THƯỚC CANVAS
-========================================= */
+// =====================================================
+// KÍCH THƯỚC XỬ LÝ
+// =====================================================
 
 function getTargetSize(width, height) {
-  const ratio = getRatio(width, height);
-
-  const maxWidth = 1536;
-  const maxHeight = 1536;
+  const ratio =
+    getRatio(width, height);
 
   let targetWidth;
   let targetHeight;
 
   if (ratio >= 1) {
-    targetWidth = maxWidth;
-    targetHeight = Math.round(
-      targetWidth / ratio
-    );
+    targetWidth = 1536;
+    targetHeight =
+      Math.round(
+        targetWidth / ratio
+      );
   } else {
-    targetHeight = maxHeight;
-    targetWidth = Math.round(
-      targetHeight * ratio
-    );
+    targetHeight = 1536;
+    targetWidth =
+      Math.round(
+        targetHeight * ratio
+      );
   }
 
   /*
-   * GPT Image yêu cầu kích thước phù hợp.
-   * Ép cả hai cạnh về bội số 16.
+   * GPT Image yêu cầu kích thước
+   * phù hợp với hệ thống ảnh.
    */
-  targetWidth = Math.max(
-    256,
-    Math.round(targetWidth / 16) * 16
-  );
+  targetWidth =
+    Math.max(
+      256,
+      Math.round(
+        targetWidth / 16
+      ) * 16
+    );
 
-  targetHeight = Math.max(
-    256,
-    Math.round(targetHeight / 16) * 16
-  );
+  targetHeight =
+    Math.max(
+      256,
+      Math.round(
+        targetHeight / 16
+      ) * 16
+    );
 
   return {
     width: targetWidth,
@@ -70,32 +106,9 @@ function getTargetSize(width, height) {
   };
 }
 
-/* =========================================
-   DATA URL → BUFFER
-========================================= */
-
-function dataUrlToBuffer(dataUrl) {
-  if (
-    typeof dataUrl !== "string" ||
-    !dataUrl.includes(",")
-  ) {
-    throw new Error(
-      "Ảnh đầu vào không hợp lệ."
-    );
-  }
-
-  const base64 =
-    dataUrl.split(",")[1];
-
-  return Buffer.from(
-    base64,
-    "base64"
-  );
-}
-
-/* =========================================
-   CHUẨN HÓA ẢNH
-========================================= */
+// =====================================================
+// CHUẨN HÓA ẢNH
+// =====================================================
 
 async function normalizeImage(
   buffer,
@@ -112,464 +125,216 @@ async function normalizeImage(
     .toBuffer();
 }
 
-/* =========================================
-   CHUẨN BỊ CANVAS
-========================================= */
+// =====================================================
+// PROMPT AI EDIT
+// =====================================================
 
-async function prepareCanvas(
-  sourceBuffer,
-  target
-) {
-  const sourceMeta =
-    await sharp(sourceBuffer).metadata();
-
-  if (
-    !sourceMeta.width ||
-    !sourceMeta.height
-  ) {
-    throw new Error(
-      "Không đọc được kích thước ảnh nguồn."
-    );
-  }
-
-  /*
-   * Thu nhỏ ảnh gốc KHÔNG méo.
-   */
-  const resized =
-    await sharp(sourceBuffer)
-      .resize({
-        width: target.width,
-        height: target.height,
-        fit: "inside",
-        withoutEnlargement: true,
-      })
-      .ensureAlpha()
-      .png()
-      .toBuffer();
-
-  const resizedMeta =
-    await sharp(resized).metadata();
-
-  const sourceWidth =
-    resizedMeta.width;
-
-  const sourceHeight =
-    resizedMeta.height;
-
-  if (
-    !sourceWidth ||
-    !sourceHeight
-  ) {
-    throw new Error(
-      "Không xác định được kích thước ảnh nguồn."
-    );
-  }
-
-  const left = Math.floor(
-    (target.width - sourceWidth) / 2
-  );
-
-  const top = Math.floor(
-    (target.height - sourceHeight) / 2
-  );
-
-  /*
-   * Canvas.
-   */
-  const canvas =
-    await sharp({
-      create: {
-        width: target.width,
-        height: target.height,
-        channels: 4,
-        background: {
-          r: 255,
-          g: 255,
-          b: 255,
-          alpha: 1,
-        },
-      },
-    })
-      .composite([
-        {
-          input: resized,
-          left,
-          top,
-        },
-      ])
-      .ensureAlpha()
-      .png()
-      .toBuffer();
-
-  /*
-   * Đảm bảo canvas đúng tuyệt đối.
-   */
-  const normalizedCanvas =
-    await normalizeImage(
-      canvas,
-      target
-    );
-
-  return {
-    canvas: normalizedCanvas,
-    sourceWidth,
-    sourceHeight,
-    left,
-    top,
-  };
-}
-
-/* =========================================
-   TẠO MASK
-========================================= */
-
-async function createMask(
-  target,
-  side,
-  amount
-) {
-  /*
-   * Đen = giữ nguyên.
-   * Trắng = vùng AI được phép tạo.
-   */
-
-  const mask =
-    await sharp({
-      create: {
-        width: target.width,
-        height: target.height,
-        channels: 4,
-        background: {
-          r: 0,
-          g: 0,
-          b: 0,
-          alpha: 1,
-        },
-      },
-    })
-      .png()
-      .toBuffer();
-
-  const whiteArea =
-    await sharp({
-      create: {
-        width: amount,
-        height: target.height,
-        channels: 4,
-        background: {
-          r: 255,
-          g: 255,
-          b: 255,
-          alpha: 1,
-        },
-      },
-    })
-      .png()
-      .toBuffer();
-
-  let left = 0;
-
-  if (side === "right") {
-    left =
-      target.width - amount;
-  }
-
-  const result =
-    await sharp(mask)
-      .composite([
-        {
-          input: whiteArea,
-          left,
-          top: 0,
-        },
-      ])
-      .ensureAlpha()
-      .png()
-      .toBuffer();
-
-  /*
-   * Đảm bảo mask có chính xác
-   * cùng kích thước canvas.
-   */
-  return normalizeImage(
-    result,
-    target
-  );
-}
-
-/* =========================================
-   PROMPT BÊN TRÁI
-========================================= */
-
-function buildLeftPrompt({
+function buildEditPrompt({
+  editPrompt,
   content,
   designType,
   width,
   height,
   unit,
   style,
+  designPlan,
 }) {
+  const planText =
+    designPlan &&
+    typeof designPlan === "object"
+      ? JSON.stringify(
+          designPlan,
+          null,
+          2
+        )
+      : "";
+
   return `
-You are extending a professional advertising artwork.
+You are an expert professional advertising graphic designer
+performing a CONTROLLED EDIT on an existing finished design.
 
-FINAL PRINT SIZE:
-${width} × ${height} ${unit}
+The supplied image is the CURRENT FINAL DESIGN.
 
-DESIGN TYPE:
+Your job is NOT to redesign the artwork.
+
+Your job is NOT to create a new composition.
+
+Your job is NOT to improve the design unless the customer
+explicitly asks for improvement.
+
+Your job is to make ONLY the change requested by the customer.
+
+=====================================================
+CUSTOMER EDIT REQUEST
+=====================================================
+
+${editPrompt}
+
+=====================================================
+ORIGINAL DESIGN INFORMATION
+=====================================================
+
+Design type:
 ${designType}
 
-STYLE:
-${style || "Hiện đại"}
+Final size:
+${width} × ${height} ${unit}
 
-CUSTOMER CONTENT:
-${content || "Professional advertising design"}
+Style:
+${style}
 
-EXTEND ONLY THE LEFT SIDE.
+Original design brief:
+${content || ""}
 
-The existing artwork must remain intact.
+Design plan:
+${planText}
 
-Continue the existing:
-- background
-- environment
-- lighting
-- colors
-- textures
-- perspective
-- decorative elements
-- atmosphere
+=====================================================
+MOST IMPORTANT RULE
+=====================================================
 
-Create useful visual content across the new left area.
+EDIT ONLY WHAT THE CUSTOMER REQUESTED.
 
-Do NOT leave the new left area empty.
+PRESERVE EVERYTHING ELSE.
 
-Do NOT create a separate poster.
+The existing design is already approved.
 
-Do NOT create a panel.
+Do not rebuild it.
 
-Do NOT create a triptych.
+Do not redesign it.
 
-Do NOT create a split screen.
+Do not change its composition.
 
-Do NOT mirror the existing design.
+Do not change the layout.
 
-Do NOT duplicate people.
+Do not change the typography.
 
-Do NOT duplicate products.
+Do not rewrite text.
 
-Do NOT duplicate logos.
+Do not replace text.
 
-Do NOT duplicate text.
+Do not move text.
 
-Do NOT distort people, products, logos or typography.
+Do not resize text unless explicitly requested.
 
-The new left area must naturally connect with the existing artwork.
+Do not change colors that were not requested.
 
-It must look like one continuous professional advertising design.
+Do not change images that were not requested.
 
-Do not add random text.
+Do not replace people.
 
-Do not create a second main advertising message.
+Do not replace products.
+
+Do not replace logos.
+
+Do not add decorative elements unless explicitly requested.
+
+Do not remove decorative elements unless explicitly requested.
+
+Do not change the visual style unless explicitly requested.
+
+Do not change the background unless explicitly requested.
+
+Do not crop the design.
+
+Do not change the canvas proportions.
+
+Do not create a new advertising concept.
+
+=====================================================
+EXAMPLES
+=====================================================
+
+If the customer says:
+
+"Đổi nền hồng thành xanh"
+
+ONLY change the pink background to an appropriate blue
+background.
+
+Keep the following exactly as unchanged as possible:
+
+- all text
+- text positions
+- text sizes
+- typography
+- people
+- products
+- logos
+- decorative objects
+- composition
+- proportions
+- visual hierarchy
+
+If the customer says:
+
+"Thu nhỏ chữ KIM OANH"
+
+ONLY make the KIM OANH text smaller.
+
+Do not change other text.
+
+Do not change the background.
+
+Do not change images.
+
+Do not change the composition.
+
+If the customer says:
+
+"Đổi chữ màu đỏ thành màu vàng"
+
+ONLY change the requested red text to yellow.
+
+Do not modify unrelated elements.
+
+If the customer says:
+
+"Thêm số điện thoại ở phía dưới"
+
+ONLY add the requested phone number in the specified
+location while preserving the existing design.
+
+=====================================================
+WHEN THE REQUEST IS AMBIGUOUS
+=====================================================
+
+Prefer the smallest possible modification.
+
+Never make a large redesign.
+
+Never change multiple elements when only one element
+was requested.
+
+=====================================================
+DESIGN PRESERVATION
+=====================================================
+
+The current design should remain visually almost identical
+to the supplied image except for the requested modification.
+
+Think of this as editing a Photoshop/Corel design:
+
+CHANGE ONE ELEMENT.
+
+LOCK ALL OTHER ELEMENTS.
+
+=====================================================
+FINAL RESULT
+=====================================================
+
+Return the edited version of the existing artwork.
+
+The result must look like the SAME DESIGN after a precise
+professional edit.
+
+NOT a newly generated design.
 `;
 }
 
-/* =========================================
-   PROMPT BÊN PHẢI
-========================================= */
-
-function buildRightPrompt({
-  content,
-  designType,
-  width,
-  height,
-  unit,
-  style,
-}) {
-  return `
-You are extending a professional advertising artwork.
-
-FINAL PRINT SIZE:
-${width} × ${height} ${unit}
-
-DESIGN TYPE:
-${designType}
-
-STYLE:
-${style || "Hiện đại"}
-
-CUSTOMER CONTENT:
-${content || "Professional advertising design"}
-
-EXTEND ONLY THE RIGHT SIDE.
-
-The existing artwork must remain intact.
-
-Continue the existing:
-- background
-- environment
-- lighting
-- colors
-- textures
-- perspective
-- decorative elements
-- atmosphere
-
-Create useful visual content across the new right area.
-
-Do NOT leave the new right area empty.
-
-Do NOT create a separate poster.
-
-Do NOT create a panel.
-
-Do NOT create a triptych.
-
-Do NOT create a split screen.
-
-Do NOT mirror the existing design.
-
-Do NOT duplicate people.
-
-Do NOT duplicate products.
-
-Do NOT duplicate logos.
-
-Do NOT duplicate text.
-
-Do NOT distort people, products, logos or typography.
-
-The new right area must naturally connect with the existing artwork.
-
-It must look like one continuous professional advertising design.
-
-Do not add random text.
-
-Do not create a second main advertising message.
-`;
-}
-
-/* =========================================
-   OPENAI OUTPAINT
-========================================= */
-
-async function runOutpaint({
-  canvas,
-  mask,
-  prompt,
-  target,
-}) {
-  /*
-   * QUAN TRỌNG:
-   * Ép IMAGE và MASK về cùng kích thước
-   * ngay trước khi gửi OpenAI.
-   */
-
-  const normalizedCanvas =
-    await normalizeImage(
-      canvas,
-      target
-    );
-
-  const normalizedMask =
-    await normalizeImage(
-      mask,
-      target
-    );
-
-  const imageMeta =
-    await sharp(
-      normalizedCanvas
-    ).metadata();
-
-  const maskMeta =
-    await sharp(
-      normalizedMask
-    ).metadata();
-
-  console.log(
-    "OPENAI EDIT DIMENSIONS:",
-    {
-      imageWidth: imageMeta.width,
-      imageHeight: imageMeta.height,
-      maskWidth: maskMeta.width,
-      maskHeight: maskMeta.height,
-    }
-  );
-
-  if (
-    imageMeta.width !==
-      maskMeta.width ||
-    imageMeta.height !==
-      maskMeta.height
-  ) {
-    throw new Error(
-      "IMAGE và MASK không cùng kích thước."
-    );
-  }
-
-  const imageFile =
-    await toFile(
-      normalizedCanvas,
-      "canvas.png",
-      {
-        type: "image/png",
-      }
-    );
-
-  const maskFile =
-    await toFile(
-      normalizedMask,
-      "mask.png",
-      {
-        type: "image/png",
-      }
-    );
-
-  const response =
-    await openai.images.edit({
-      model: "gpt-image-2",
-
-      image: imageFile,
-
-      mask: maskFile,
-
-      prompt,
-
-      size: "auto",
-
-      quality: "high",
-
-      output_format: "png",
-    });
-
-  const resultBase64 =
-    response?.data?.[0]?.b64_json;
-
-  if (!resultBase64) {
-    throw new Error(
-      "OpenAI không trả về ảnh."
-    );
-  }
-
-  const resultBuffer =
-    Buffer.from(
-      resultBase64,
-      "base64"
-    );
-
-  /*
-   * RẤT QUAN TRỌNG:
-   * Chuẩn hóa kết quả trước khi
-   * đưa sang lượt outpaint tiếp theo.
-   */
-  return normalizeImage(
-    resultBuffer,
-    target
-  );
-}
-
-/* =========================================
-   API
-========================================= */
+// =====================================================
+// API
+// =====================================================
 
 export default async function handler(
   req,
@@ -584,19 +349,42 @@ export default async function handler(
   try {
     const {
       image,
+      editPrompt,
       content = "",
       designType = "Backdrop",
       width,
       height,
       unit = "cm",
       style = "Hiện đại",
+      designPlan = null,
     } = req.body || {};
+
+    // =================================================
+    // KIỂM TRA
+    // =================================================
+
+    if (!image) {
+      return res.status(400).json({
+        error:
+          "Không có thiết kế để chỉnh sửa.",
+      });
+    }
+
+    if (
+      !editPrompt ||
+      typeof editPrompt !== "string" ||
+      !editPrompt.trim()
+    ) {
+      return res.status(400).json({
+        error:
+          "Vui lòng nhập yêu cầu chỉnh sửa.",
+      });
+    }
 
     const w = Number(width);
     const h = Number(height);
 
     if (
-      !image ||
       !Number.isFinite(w) ||
       !Number.isFinite(h) ||
       w <= 0 ||
@@ -604,226 +392,123 @@ export default async function handler(
     ) {
       return res.status(400).json({
         error:
-          "Thiếu ảnh hoặc kích thước không hợp lệ.",
+          "Kích thước thiết kế không hợp lệ.",
       });
     }
 
-    const ratio =
-      getRatio(w, h);
+    // =================================================
+    // KÍCH THƯỚC
+    // =================================================
 
     const target =
       getTargetSize(w, h);
+
+    // =================================================
+    // ẢNH HIỆN TẠI
+    // =================================================
+
+    const sourceBuffer =
+      dataUrlToBuffer(image);
+
+    const normalizedInput =
+      await normalizeImage(
+        sourceBuffer,
+        target
+      );
+
+    // =================================================
+    // PROMPT
+    // =================================================
+
+    const finalPrompt =
+      buildEditPrompt({
+        editPrompt:
+          editPrompt.trim(),
+        content,
+        designType,
+        width: w,
+        height: h,
+        unit,
+        style,
+        designPlan,
+      });
 
     console.log(
       "========================================"
     );
 
     console.log(
-      "AI DESIGN PRINT PANORAMA OUTPAINT V3"
+      "AI DESIGN PRINT - CONTROLLED EDIT"
     );
 
     console.log({
+      editPrompt,
+      designType,
       width: w,
       height: h,
       unit,
-      ratio,
-      target,
-      designType,
       style,
+      target,
     });
 
     console.log(
       "========================================"
     );
 
-    const sourceBuffer =
-      dataUrlToBuffer(image);
+    // =================================================
+    // OPENAI IMAGE EDIT
+    // =================================================
 
-    const prepared =
-      await prepareCanvas(
-        sourceBuffer,
-        target
+    const imageFile =
+      await toFile(
+        normalizedInput,
+        "current-design.png",
+        {
+          type: "image/png",
+        }
       );
 
-    const {
-      canvas,
-      sourceWidth,
-      left,
-    } = prepared;
+    const response =
+      await openai.images.edit({
+        model: "gpt-image-2",
 
-    const right =
-      target.width -
-      left -
-      sourceWidth;
+        image: imageFile,
 
-    console.log(
-      "SOURCE / TARGET:",
-      {
-        sourceWidth,
-        left,
-        right,
-        targetWidth:
-          target.width,
-        targetHeight:
-          target.height,
-      }
-    );
+        prompt: finalPrompt,
 
-    /*
-     * ======================================
-     * KHÔNG CẦN OUTPAINT
-     * ======================================
-     */
+        size: "auto",
 
-    if (
-      left <= 32 &&
-      right <= 32
-    ) {
-      const finalBuffer =
-        await normalizeImage(
-          canvas,
-          target
-        );
+        quality: "high",
 
-      return res.status(200).json({
-        image:
-          `data:image/png;base64,${finalBuffer.toString(
-            "base64"
-          )}`,
-
-        width: target.width,
-        height: target.height,
-
-        targetWidth:
-          target.width,
-
-        targetHeight:
-          target.height,
-
-        ratio,
-
-        method:
-          "AI_NO_OUTPAINT",
-
-        promptVersion:
-          "AI-DESIGN-PRINT-OUTPAINT-V6",
-
-        success: true,
+        output_format: "png",
       });
+
+    // =================================================
+    // KẾT QUẢ
+    // =================================================
+
+    const resultBase64 =
+      response?.data?.[0]?.b64_json;
+
+    if (!resultBase64) {
+      throw new Error(
+        "OpenAI không trả về ảnh chỉnh sửa."
+      );
     }
 
-    /*
-     * ======================================
-     * LƯỢT 1
-     * MỞ RỘNG BÊN TRÁI
-     * ======================================
-     */
-
-    console.log(
-      "PANORAMA PASS 1: LEFT"
-    );
-
-    const leftAmount =
-      Math.max(
-        32,
-        Math.min(
-          target.width,
-          left
-        )
+    const resultBuffer =
+      Buffer.from(
+        resultBase64,
+        "base64"
       );
 
-    const leftMask =
-      await createMask(
-        target,
-        "left",
-        leftAmount
-      );
-
-    const leftPrompt =
-      buildLeftPrompt({
-        content,
-        designType,
-        width: w,
-        height: h,
-        unit,
-        style,
-      });
-
-    const leftResult =
-      await runOutpaint({
-        canvas,
-        mask: leftMask,
-        prompt: leftPrompt,
-        target,
-      });
-
-    console.log(
-      "PASS 1 COMPLETE"
-    );
-
-    /*
-     * ======================================
-     * LƯỢT 2
-     * MỞ RỘNG BÊN PHẢI
-     * ======================================
-     */
-
-    console.log(
-      "PANORAMA PASS 2: RIGHT"
-    );
-
-    /*
-     * leftResult ĐÃ được normalize
-     * về đúng target ở trên.
-     */
-
-    const rightAmount =
-      Math.max(
-        32,
-        Math.min(
-          target.width,
-          right
-        )
-      );
-
-    const rightMask =
-      await createMask(
-        target,
-        "right",
-        rightAmount
-      );
-
-    const rightPrompt =
-      buildRightPrompt({
-        content,
-        designType,
-        width: w,
-        height: h,
-        unit,
-        style,
-      });
-
-    const finalResult =
-      await runOutpaint({
-        canvas: leftResult,
-        mask: rightMask,
-        prompt: rightPrompt,
-        target,
-      });
-
-    console.log(
-      "PASS 2 COMPLETE"
-    );
-
-    /*
-     * ======================================
-     * ẢNH CUỐI
-     * ======================================
-     */
+    // =================================================
+    // ĐƯA VỀ ĐÚNG KÍCH THƯỚC XỬ LÝ
+    // =================================================
 
     const finalBuffer =
       await normalizeImage(
-        finalResult,
+        resultBuffer,
         target
       );
 
@@ -837,22 +522,13 @@ export default async function handler(
     );
 
     console.log(
-      "AI DESIGN PRINT PANORAMA SUCCESS"
+      "AI DESIGN PRINT - EDIT SUCCESS"
     );
 
     console.log({
-      finalWidth:
-        target.width,
-
-      finalHeight:
-        target.height,
-
-      finalRatio:
-        target.width /
-        target.height,
-
       method:
-        "AI_TWO_PASS_LEFT_RIGHT_OUTPAINT_V3",
+        "CONTROLLED_EDIT",
+      target,
     });
 
     console.log(
@@ -860,6 +536,8 @@ export default async function handler(
     );
 
     return res.status(200).json({
+      success: true,
+
       image: finalImage,
 
       width:
@@ -874,26 +552,26 @@ export default async function handler(
       targetHeight:
         target.height,
 
-      ratio,
+      ratio:
+        target.width /
+        target.height,
 
       method:
-        "AI_TWO_PASS_LEFT_RIGHT_OUTPAINT_V3",
+        "CONTROLLED_EDIT",
 
       promptVersion:
-        "AI-DESIGN-PRINT-OUTPAINT-V6",
-
-      success: true,
+        "AI-DESIGN-PRINT-CONTROLLED-EDIT-V1",
     });
   } catch (error) {
     console.error(
-      "AI DESIGN PRINT PANORAMA OUTPAINT ERROR:",
+      "AI DESIGN PRINT EDIT ERROR:",
       error
     );
 
     return res.status(500).json({
       error:
         error?.message ||
-        "Không thể mở rộng thiết kế AI.",
+        "Không thể chỉnh sửa thiết kế.",
     });
   }
 }
