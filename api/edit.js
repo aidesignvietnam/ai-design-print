@@ -15,12 +15,6 @@ function getRatio(width, height) {
   return Number(width) / Number(height);
 }
 
-/*
- * GPT-Image-2 hỗ trợ kích thước linh hoạt.
- *
- * Chọn canvas tối đa 3840px và làm tròn chiều còn lại
- * theo bội số 16 để giữ đúng tỷ lệ tốt nhất.
- */
 function getTargetSize(width, height) {
   const ratio = getRatio(width, height);
 
@@ -31,12 +25,10 @@ function getTargetSize(width, height) {
 
   if (ratio >= 1) {
     targetWidth = maxDimension;
-    targetHeight =
-      Math.round((targetWidth / ratio) / 16) * 16;
+    targetHeight = Math.round((targetWidth / ratio) / 16) * 16;
   } else {
     targetHeight = maxDimension;
-    targetWidth =
-      Math.round((targetHeight * ratio) / 16) * 16;
+    targetWidth = Math.round((targetHeight * ratio) / 16) * 16;
   }
 
   targetWidth = Math.max(256, targetWidth);
@@ -65,7 +57,7 @@ TARGET PRINT FORMAT:
 ${width} ${unit} × ${height} ${unit}
 
 TARGET ASPECT RATIO:
-${ratio.toFixed(4)} : 1
+${ratio.toFixed(3)} : 1
 
 DESIGN TYPE:
 ${designType || "Banner"}
@@ -78,55 +70,42 @@ ${content || "Professional advertising design."}
 
 TASK:
 
-Expand the existing artwork into the transparent/masked areas.
+Extend the existing artwork naturally into the transparent masked areas.
 
-IMPORTANT:
+The existing artwork contains the important advertising content.
+Preserve the original artwork exactly as much as possible.
 
-Preserve the existing artwork exactly.
+DO NOT redesign the existing artwork.
 
-Do NOT resize or distort the existing people,
-products, objects, logos, or typography.
+DO NOT create a second version of the artwork.
 
-Do NOT make people shorter or taller.
+DO NOT duplicate the main subject.
 
-Do NOT stretch faces or bodies.
+DO NOT duplicate people.
 
-Do NOT stretch products.
+DO NOT duplicate products.
 
-Do NOT change the proportions of important objects.
+DO NOT duplicate logos.
 
-Do NOT redesign the existing composition.
+DO NOT duplicate typography.
 
-Do NOT create a second version of the design.
+DO NOT create three panels.
 
-Do NOT duplicate the main subject.
+DO NOT create a triptych.
 
-Do NOT duplicate people.
+DO NOT mirror the original design.
 
-Do NOT duplicate products.
+DO NOT create a central frame.
 
-Do NOT duplicate logos.
+DO NOT create a border.
 
-Do NOT duplicate typography.
+DO NOT create a mockup.
 
-Do NOT create three panels.
+DO NOT create a wall or billboard presentation.
 
-Do NOT create a triptych.
+Only extend the background and surrounding environment.
 
-Do NOT mirror the artwork.
-
-Do NOT create a central frame.
-
-Do NOT create a border.
-
-Do NOT create a mockup.
-
-Do NOT create a wall or billboard presentation.
-
-The masked areas must become a natural continuation
-of the existing background and environment.
-
-Continue naturally:
+Continue naturally with compatible:
 - background
 - lighting
 - gradients
@@ -135,26 +114,28 @@ Continue naturally:
 - textures
 - decorative elements
 - atmosphere
-- colors
-- depth
-
-The original important advertising content must remain
-in its original proportions.
 
 The main subject must appear only once.
 
-The final artwork must look like ONE continuous
-professional large-format advertising design.
+People must keep their original proportions.
 
-The final composition must fill the entire target canvas.
+Products must keep their original proportions.
 
-No empty white areas.
+Logos must keep their original proportions.
 
-No black bars.
+Typography must not be stretched.
 
-No unrelated text.
+Do not stretch the original artwork.
 
-No watermarks.
+Do not squeeze the original artwork.
+
+Do not distort important objects.
+
+Do not add unrelated text.
+
+Do not add watermarks.
+
+The final result must look like ONE continuous professional large-format advertising artwork.
 
 The result will be printed as a large-format advertising banner.
 `;
@@ -207,8 +188,7 @@ export default async function handler(req, res) {
       height <= 0
     ) {
       return json(res, 400, {
-        error:
-          "Chiều rộng và chiều cao không hợp lệ.",
+        error: "Chiều rộng và chiều cao không hợp lệ.",
       });
     }
 
@@ -247,34 +227,26 @@ export default async function handler(req, res) {
         physicalWidth: width,
         physicalHeight: height,
         unit,
-
         originalWidth,
         originalHeight,
         originalRatio,
-
         targetWidth: target.width,
         targetHeight: target.height,
         targetRatio,
       }
     );
 
-    /*
-     * =================================================
-     * 1. Đưa ảnh gốc vào canvas mới.
-     *
-     * QUAN TRỌNG:
-     * Không dùng "fill".
-     * Không kéo méo ảnh.
-     *
-     * Ảnh gốc được giữ nguyên tỷ lệ.
-     * =================================================
-     */
-
     const fitted =
       await sharp(originalBuffer)
         .resize({
-          width: target.width,
-          height: target.height,
+          width: Math.min(
+            originalWidth,
+            target.width
+          ),
+          height: Math.min(
+            originalHeight,
+            target.height
+          ),
           fit: "inside",
           withoutEnlargement: false,
         })
@@ -299,15 +271,6 @@ export default async function handler(req, res) {
       Math.round(
         (target.height - fittedHeight) / 2
       );
-
-    /*
-     * =================================================
-     * 2. Tạo canvas trong suốt.
-     *
-     * Phần ảnh gốc nằm giữa.
-     * Phần ngoài là vùng AI phải mở rộng.
-     * =================================================
-     */
 
     const canvas =
       await sharp({
@@ -334,20 +297,28 @@ export default async function handler(req, res) {
         .toBuffer();
 
     /*
-     * =================================================
-     * 3. Tạo MASK ĐÚNG cho OpenAI.
+     * OpenAI image edit mask:
      *
-     * OpenAI:
-     *
-     * TRANSPARENT = AI được phép chỉnh / mở rộng
-     * OPAQUE      = giữ nguyên artwork gốc
-     *
-     * Vì vậy:
-     *
-     * - Toàn bộ canvas = transparent
-     * - Vị trí artwork gốc = opaque
-     * =================================================
+     * OPAQUE area = preserve original artwork.
+     * TRANSPARENT area = allow AI to generate/extend.
      */
+
+    const originalMask =
+      await sharp({
+        create: {
+          width: fittedWidth,
+          height: fittedHeight,
+          channels: 4,
+          background: {
+            r: 255,
+            g: 255,
+            b: 255,
+            alpha: 1,
+          },
+        },
+      })
+        .png()
+        .toBuffer();
 
     const mask =
       await sharp({
@@ -355,7 +326,6 @@ export default async function handler(req, res) {
           width: target.width,
           height: target.height,
           channels: 4,
-
           background: {
             r: 0,
             g: 0,
@@ -366,36 +336,13 @@ export default async function handler(req, res) {
       })
         .composite([
           {
-            input:
-              await sharp({
-                create: {
-                  width: fittedWidth,
-                  height: fittedHeight,
-                  channels: 4,
-
-                  background: {
-                    r: 255,
-                    g: 255,
-                    b: 255,
-                    alpha: 1,
-                  },
-                },
-              })
-                .png()
-                .toBuffer(),
-
+            input: originalMask,
             left,
             top,
           },
         ])
         .png()
         .toBuffer();
-
-    /*
-     * =================================================
-     * 4. Gửi canvas + mask cho GPT-Image-2.
-     * =================================================
-     */
 
     const imageFile = await toFile(
       canvas,
@@ -423,25 +370,19 @@ export default async function handler(req, res) {
         content,
       });
 
+    console.log(
+      "OPENAI OUTPAINT SIZE:",
+      `${target.width}x${target.height}`
+    );
+
     const response =
       await openai.images.edit({
         model: "gpt-image-2",
-
         image: imageFile,
-
         mask: maskFile,
-
         prompt,
-
-        /*
-         * Yêu cầu AI trả về đúng canvas mục tiêu.
-         * Không dùng auto vì auto có thể trả về tỷ lệ khác.
-         */
-        size:
-          `${target.width}x${target.height}`,
-
+        size: `${target.width}x${target.height}`,
         quality: "high",
-
         output_format: "png",
       });
 
@@ -459,22 +400,6 @@ export default async function handler(req, res) {
         result,
         "base64"
       );
-
-    /*
-     * =================================================
-     * 5. Kiểm tra kích thước AI trả về.
-     *
-     * TUYỆT ĐỐI KHÔNG dùng fit:"fill".
-     *
-     * Nếu AI đã trả đúng canvas -> dùng nguyên ảnh.
-     *
-     * Nếu khác kích thước nhưng cùng tỷ lệ ->
-     * resize theo tỷ lệ, không bóp méo.
-     *
-     * Nếu khác tỷ lệ quá nhiều ->
-     * báo lỗi thay vì tạo ảnh bị lùn.
-     * =================================================
-     */
 
     const resultMeta =
       await sharp(resultBuffer).metadata();
@@ -500,11 +425,11 @@ export default async function handler(req, res) {
       ) / targetRatio;
 
     console.log(
-      "AI RESULT SIZE",
+      "ASPECT EDIT RESULT",
       {
-        resultWidth,
-        resultHeight,
-        resultRatio,
+        width: resultWidth,
+        height: resultHeight,
+        ratio: resultRatio,
         targetWidth: target.width,
         targetHeight: target.height,
         targetRatio,
@@ -514,26 +439,12 @@ export default async function handler(req, res) {
 
     let finalImage;
 
-    /*
-     * Trường hợp đúng kích thước.
-     */
     if (
       resultWidth === target.width &&
       resultHeight === target.height
     ) {
-      finalImage = await sharp(
-        resultBuffer
-      )
-        .png()
-        .toBuffer();
-    }
-
-    /*
-     * Trường hợp khác pixel nhưng tỷ lệ vẫn gần đúng.
-     *
-     * Resize theo tỷ lệ, KHÔNG stretch.
-     */
-    else if (ratioDifference <= 0.02) {
+      finalImage = resultBuffer;
+    } else if (ratioDifference <= 0.02) {
       finalImage =
         await sharp(resultBuffer)
           .resize({
@@ -544,67 +455,9 @@ export default async function handler(req, res) {
           })
           .png()
           .toBuffer();
-
-      /*
-       * Sau resize có thể nhỏ hơn canvas một chút.
-       * Đặt lên canvas đúng kích thước mà không kéo méo.
-       */
-      const finalMeta =
-        await sharp(finalImage).metadata();
-
-      const finalWidth =
-        finalMeta.width || target.width;
-
-      const finalHeight =
-        finalMeta.height || target.height;
-
-      if (
-        finalWidth !== target.width ||
-        finalHeight !== target.height
-      ) {
-        finalImage =
-          await sharp({
-            create: {
-              width: target.width,
-              height: target.height,
-              channels: 4,
-              background: {
-                r: 255,
-                g: 255,
-                b: 255,
-                alpha: 0,
-              },
-            },
-          })
-            .composite([
-              {
-                input: finalImage,
-                left: Math.round(
-                  (target.width - finalWidth) / 2
-                ),
-                top: Math.round(
-                  (target.height - finalHeight) / 2
-                ),
-              },
-            ])
-            .png()
-            .toBuffer();
-      }
-    }
-
-    /*
-     * AI trả về tỷ lệ sai quá nhiều.
-     *
-     * Không ép ảnh.
-     * Báo lỗi để tránh xuất ra hình bị lùn.
-     */
-    else {
+    } else {
       throw new Error(
-        `AI trả về tỷ lệ ${resultRatio.toFixed(
-          3
-        )}, khác tỷ lệ yêu cầu ${targetRatio.toFixed(
-          3
-        )}. Hệ thống không ép méo ảnh.`
+        `AI trả về tỷ lệ ảnh không đúng. Nhận được ${resultWidth}x${resultHeight}, yêu cầu ${target.width}x${target.height}.`
       );
     }
 
@@ -612,11 +465,10 @@ export default async function handler(req, res) {
       await sharp(finalImage).metadata();
 
     console.log(
-      "ASPECT EDIT FINAL",
+      "FINAL IMAGE",
       {
         width: finalMeta.width,
         height: finalMeta.height,
-
         ratio:
           finalMeta.width /
           finalMeta.height,
