@@ -18,6 +18,7 @@ function App() {
   const [uploadedImage, setUploadedImage] = useState(null);
 
   const [generatedImage, setGeneratedImage] = useState(null);
+  const [designPlan, setDesignPlan] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
   const [processingStep, setProcessingStep] = useState("");
@@ -122,19 +123,110 @@ function App() {
 
     setGenerating(true);
     setGeneratedImage(null);
+    setDesignPlan(null);
     setError("");
 
     setProcessingStep(
-      `AI đang thiết kế ${w} × ${h} ${unit}...`
+      "AI ART DIRECTOR đang phân tích yêu cầu..."
     );
 
     try {
       /*
        * =================================================
        * BƯỚC 1
-       * AI TẠO THIẾT KẾ GỐC
+       * AI ART DIRECTOR PHÂN TÍCH YÊU CẦU
+       *
+       * AI tự xác định:
+       * - nội dung quan trọng
+       * - hierarchy
+       * - layout
+       * - phong cách
+       * - tỷ lệ chữ
+       * - hình ảnh
+       * - màu sắc
+       * - chất lượng
+       *
+       * Không ép một bố cục cố định.
        * =================================================
        */
+
+      const planResponse = await fetch(
+        "/api/plan",
+        {
+          method: "POST",
+
+          headers: {
+            "Content-Type":
+              "application/json",
+          },
+
+          body: JSON.stringify({
+            designType,
+            width: w,
+            height: h,
+            unit,
+            prompt,
+            style,
+            aspectRatio,
+            uploadedImage: Boolean(
+              uploadedImage
+            ),
+          }),
+        }
+      );
+
+      const planText =
+        await planResponse.text();
+
+      let planData = {};
+
+      try {
+        planData = planText
+          ? JSON.parse(planText)
+          : {};
+      } catch {
+        throw new Error(
+          planText ||
+            "AI ART DIRECTOR không trả về JSON hợp lệ."
+        );
+      }
+
+      if (!planResponse.ok) {
+        throw new Error(
+          planData.error ||
+            "AI ART DIRECTOR không thể phân tích yêu cầu."
+        );
+      }
+
+      if (!planData.designPlan) {
+        throw new Error(
+          "AI ART DIRECTOR không trả về Design Plan."
+        );
+      }
+
+      const currentDesignPlan =
+        planData.designPlan;
+
+      setDesignPlan(
+        currentDesignPlan
+      );
+
+      /*
+       * =================================================
+       * BƯỚC 2
+       * AI TẠO THIẾT KẾ GỐC
+       *
+       * generate.js sẽ nhận Design Plan
+       * và dùng nó để tạo hình.
+       * =================================================
+       */
+
+      setProcessingStep(
+        `AI đang tạo concept: ${
+          currentDesignPlan.concept ||
+          "thiết kế phù hợp yêu cầu"
+        }`
+      );
 
       const generateResponse = await fetch(
         "/api/generate",
@@ -154,6 +246,8 @@ function App() {
             prompt,
             style,
             aspectRatio,
+            designPlan:
+              currentDesignPlan,
           }),
         }
       );
@@ -192,23 +286,18 @@ function App() {
 
       /*
        * =================================================
-       * BƯỚC 2
+       * BƯỚC 3
        * NẾU TỶ LỆ QUÁ RỘNG / QUÁ CAO
        *
-       * Gọi /api/edit để AI mở rộng phần nền.
-       *
-       * Ví dụ:
-       * 400 × 70
-       * 500 × 80
-       * 300 × 50
-       *
-       * sẽ đi qua bước này.
+       * Gọi /api/edit để AI mở rộng nền.
+       * Design Plan cũng được gửi sang để giữ
+       * đúng ý đồ bố cục và phong cách.
        * =================================================
        */
 
       if (requiresExpansion) {
         setProcessingStep(
-          `AI đang mở rộng thiết kế theo tỷ lệ ${w} × ${h} ${unit}...`
+          `AI đang mở rộng thiết kế theo đúng bố cục ${w} × ${h} ${unit}...`
         );
 
         const editResponse = await fetch(
@@ -225,7 +314,7 @@ function App() {
               image: finalImage,
 
               editPrompt:
-                "Mở rộng thiết kế theo đúng tỷ lệ kích thước yêu cầu. Giữ nguyên nội dung chính, không nhân đôi người, sản phẩm, logo hoặc chữ. Chỉ mở rộng nền và môi trường một cách tự nhiên.",
+                "Mở rộng thiết kế theo đúng tỷ lệ kích thước yêu cầu và theo Design Plan. Giữ nguyên hierarchy, chủ thể chính, phong cách, màu sắc và nội dung quan trọng. Không nhân đôi người, sản phẩm, logo hoặc chữ. Không tạo bố cục 3 panel. Không biến thiết kế thành một cụm nhỏ ở giữa. Chỉ mở rộng nền, môi trường và các visual phụ một cách tự nhiên để tận dụng toàn bộ canvas.",
 
               content: prompt,
 
@@ -239,6 +328,9 @@ function App() {
 
               unit,
               style,
+
+              designPlan:
+                currentDesignPlan,
             }),
           }
         );
@@ -278,7 +370,7 @@ function App() {
 
       /*
        * =================================================
-       * BƯỚC 3
+       * BƯỚC 4
        * ĐƯA ẢNH CUỐI CÙNG VÀO PREVIEW
        * =================================================
        */
