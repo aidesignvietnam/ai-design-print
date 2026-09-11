@@ -26,7 +26,7 @@ function getRatio(width, height) {
 }
 
 /* =========================================
-   KÍCH THƯỚC ĐÍCH
+   KÍCH THƯỚC CANVAS ĐÍCH
 ========================================= */
 
 function getTargetSize(width, height) {
@@ -86,10 +86,10 @@ function dataUrlToBuffer(dataUrl) {
 }
 
 /* =========================================
-   CHUẨN BỊ ẢNH + MASK
+   CHUẨN BỊ CANVAS BAN ĐẦU
 ========================================= */
 
-async function prepareImages(
+async function prepareCanvas(
   sourceBuffer,
   target
 ) {
@@ -105,16 +105,9 @@ async function prepareImages(
     );
   }
 
-  const sourceRatio =
-    sourceMeta.width /
-    sourceMeta.height;
-
-  const targetRatio =
-    target.width /
-    target.height;
-
   /*
-   * Thu nhỏ ảnh nguồn nhưng KHÔNG kéo méo.
+   * Thu nhỏ ảnh nguồn theo tỷ lệ.
+   * TUYỆT ĐỐI KHÔNG KÉO MÉO.
    */
   const resized =
     await sharp(sourceBuffer)
@@ -145,25 +138,17 @@ async function prepareImages(
     );
   }
 
-  const left = Math.max(
-    0,
-    Math.floor(
-      (target.width - sourceWidth) / 2
-    )
+  const left = Math.floor(
+    (target.width - sourceWidth) / 2
   );
 
-  const top = Math.max(
-    0,
-    Math.floor(
-      (target.height - sourceHeight) / 2
-    )
+  const top = Math.floor(
+    (target.height - sourceHeight) / 2
   );
 
   /*
-   * CANVAS
-   *
-   * Ảnh gốc nằm giữa.
-   * Phần còn thiếu là vùng cần AI mở rộng.
+   * Canvas trắng.
+   * Ảnh gốc nằm chính giữa.
    */
   const canvas =
     await sharp({
@@ -189,17 +174,34 @@ async function prepareImages(
       .png()
       .toBuffer();
 
+  return {
+    canvas,
+    sourceWidth,
+    sourceHeight,
+    left,
+    top,
+  };
+}
+
+/* =========================================
+   TẠO MASK CHO MỘT VÙNG
+========================================= */
+
+async function createMask(
+  target,
+  editLeft,
+  editRight
+) {
   /*
-   * MASK
-   *
-   * Vùng ảnh gốc = đen
-   * Vùng cần mở rộng = trắng
+   * Đen = giữ nguyên
+   * Trắng = cho AI tạo lại / mở rộng
    */
-  const blackArea =
+
+  const mask =
     await sharp({
       create: {
-        width: sourceWidth,
-        height: sourceHeight,
+        width: target.width,
+        height: target.height,
         channels: 4,
         background: {
           r: 0,
@@ -209,48 +211,68 @@ async function prepareImages(
         },
       },
     })
-      .png()
-      .toBuffer();
-
-  const mask =
-    await sharp({
-      create: {
-        width: target.width,
-        height: target.height,
-        channels: 4,
-        background: {
-          r: 255,
-          g: 255,
-          b: 255,
-          alpha: 1,
-        },
-      },
-    })
       .composite([
-        {
-          input: blackArea,
-          left,
-          top,
-        },
+        ...(editLeft
+          ? [
+              {
+                input: await sharp({
+                  create: {
+                    width: editLeft,
+                    height: target.height,
+                    channels: 4,
+                    background: {
+                      r: 255,
+                      g: 255,
+                      b: 255,
+                      alpha: 1,
+                    },
+                  },
+                })
+                  .png()
+                  .toBuffer(),
+                left: 0,
+                top: 0,
+              },
+            ]
+          : []),
+
+        ...(editRight
+          ? [
+              {
+                input: await sharp({
+                  create: {
+                    width: editRight,
+                    height: target.height,
+                    channels: 4,
+                    background: {
+                      r: 255,
+                      g: 255,
+                      b: 255,
+                      alpha: 1,
+                    },
+                  },
+                })
+                  .png()
+                  .toBuffer(),
+                left:
+                  target.width -
+                  editRight,
+                top: 0,
+              },
+            ]
+          : []),
       ])
       .png()
       .toBuffer();
 
-  return {
-    canvas,
-    mask,
-    sourceRatio,
-    targetRatio,
-    sourceWidth,
-    sourceHeight,
-  };
+  return mask;
 }
 
 /* =========================================
-   PROMPT OUTPAINT
+   PROMPT — MỞ RỘNG BÊN TRÁI
 ========================================= */
 
-function buildPrompt({
+function buildLeftPrompt({
   content,
   designType,
   width,
@@ -259,9 +281,9 @@ function buildPrompt({
   style,
 }) {
   return `
-Edit and naturally extend this professional advertising artwork.
+You are editing a professional large-format advertising design.
 
-FINAL SIZE:
+FINAL PRINT SIZE:
 ${width} × ${height} ${unit}
 
 DESIGN TYPE:
@@ -273,14 +295,34 @@ ${style || "Hiện đại"}
 CUSTOMER CONTENT:
 ${content || "Professional advertising design"}
 
-This is an OUTPAINTING task.
+TASK:
+EXTEND THE EXISTING DESIGN TO THE LEFT.
 
-Preserve the existing artwork and extend only the
-missing background areas.
+Only the LEFT missing area is being created.
 
-DO NOT stretch the original artwork.
+IMPORTANT:
 
-DO NOT distort:
+Continue the existing artwork naturally toward the LEFT.
+
+The new area must look like it was originally designed as part
+of the same advertising artwork.
+
+Continue:
+- background
+- environment
+- lighting
+- colors
+- textures
+- decorative graphics
+- perspective
+- atmosphere
+- visual style
+
+DO NOT move the existing artwork.
+
+DO NOT stretch the existing artwork.
+
+DO NOT resize or distort:
 - people
 - faces
 - products
@@ -294,37 +336,197 @@ DO NOT duplicate:
 - products
 - logos
 - text
-- objects
+- major objects
 
 DO NOT create:
-- triptych
-- three panels
-- three separate posters
-- split screen
-- mirrored copies
+- a new poster
+- a separate panel
+- a triptych
+- a split screen
+- a mirrored design
+- an empty white area
 
-The new background must connect naturally with the
-existing artwork.
+The LEFT side must contain meaningful supporting visual content.
 
-Continue the same:
+Use suitable:
+- decorative elements
+- environmental details
+- shapes
+- light
+- texture
+- secondary imagery
+- atmospheric details
+
+The left side must visually connect into the existing center.
+
+The result must look like ONE continuous professional
+large-format advertising design.
+
+Do not add random text.
+
+Do not invent a second main subject.
+
+Preserve the original main advertising message.
+`;
+}
+
+/* =========================================
+   PROMPT — MỞ RỘNG BÊN PHẢI
+========================================= */
+
+function buildRightPrompt({
+  content,
+  designType,
+  width,
+  height,
+  unit,
+  style,
+}) {
+  return `
+You are editing a professional large-format advertising design.
+
+FINAL PRINT SIZE:
+${width} × ${height} ${unit}
+
+DESIGN TYPE:
+${designType}
+
+STYLE:
+${style || "Hiện đại"}
+
+CUSTOMER CONTENT:
+${content || "Professional advertising design"}
+
+TASK:
+EXTEND THE EXISTING DESIGN TO THE RIGHT.
+
+Only the RIGHT missing area is being created.
+
+Continue the existing artwork naturally toward the RIGHT.
+
+The new area must look like it was originally designed as part
+of the same advertising artwork.
+
+Continue:
+- background
+- environment
 - lighting
 - colors
+- textures
+- decorative graphics
 - perspective
 - atmosphere
-- environment
-- decorative elements
 - visual style
 
-Keep the original main content intact.
+DO NOT move the existing artwork.
 
-The result must look like ONE SINGLE LARGE
-PROFESSIONAL ADVERTISING DESIGN.
+DO NOT stretch the existing artwork.
 
-The extended background should feel continuous
-from one side to the other.
+DO NOT resize or distort:
+- people
+- faces
+- products
+- logos
+- text
+- typography
+- important objects
 
-Suitable for large-format printing.
+DO NOT duplicate:
+- people
+- products
+- logos
+- text
+- major objects
+
+DO NOT create:
+- a new poster
+- a separate panel
+- a triptych
+- a split screen
+- a mirrored design
+- an empty white area
+
+The RIGHT side must contain meaningful supporting visual content.
+
+Use suitable:
+- decorative elements
+- environmental details
+- shapes
+- light
+- texture
+- secondary imagery
+- atmospheric details
+
+The right side must visually connect into the existing center.
+
+The result must look like ONE continuous professional
+large-format advertising design.
+
+Do not add random text.
+
+Do not invent a second main subject.
+
+Preserve the original main advertising message.
 `;
+}
+
+/* =========================================
+   GỌI OPENAI EDIT
+========================================= */
+
+async function runOutpaint({
+  canvas,
+  mask,
+  prompt,
+}) {
+  const imageFile =
+    await toFile(
+      canvas,
+      "canvas.png",
+      {
+        type: "image/png",
+      }
+    );
+
+  const maskFile =
+    await toFile(
+      mask,
+      "mask.png",
+      {
+        type: "image/png",
+      }
+    );
+
+  const response =
+    await openai.images.edit({
+      model: "gpt-image-2",
+
+      image: imageFile,
+
+      mask: maskFile,
+
+      prompt,
+
+      size: "auto",
+
+      quality: "high",
+
+      output_format: "png",
+    });
+
+  const resultBase64 =
+    response?.data?.[0]?.b64_json;
+
+  if (!resultBase64) {
+    throw new Error(
+      "OpenAI không trả về ảnh sau khi outpaint."
+    );
+  }
+
+  return Buffer.from(
+    resultBase64,
+    "base64"
+  );
 }
 
 /* =========================================
@@ -371,77 +573,170 @@ export default async function handler(req, res) {
       getTargetSize(w, h);
 
     console.log(
-      "AI DESIGN PRINT OUTPAINT REQUEST:",
-      {
-        width: w,
-        height: h,
-        unit,
-        ratio,
-        target,
-        designType,
-        style,
-      }
+      "========================================"
+    );
+
+    console.log(
+      "AI DESIGN PRINT PANORAMA OUTPAINT V2"
+    );
+
+    console.log({
+      width: w,
+      height: h,
+      unit,
+      ratio,
+      target,
+      designType,
+      style,
+    });
+
+    console.log(
+      "========================================"
     );
 
     const sourceBuffer =
       dataUrlToBuffer(image);
 
     const prepared =
-      await prepareImages(
+      await prepareCanvas(
         sourceBuffer,
         target
       );
 
+    const {
+      canvas,
+      sourceWidth,
+      sourceHeight,
+      left,
+    } = prepared;
+
+    /*
+     * ======================================
+     * TÍNH VÙNG CẦN MỞ RỘNG
+     * ======================================
+     */
+
+    const right =
+      target.width -
+      left -
+      sourceWidth;
+
     console.log(
-      "AI DESIGN PRINT PREPARED:",
+      "PANORAMA SOURCE:",
       {
-        sourceRatio:
-          prepared.sourceRatio,
-
-        targetRatio:
-          prepared.targetRatio,
-
-        targetWidth:
-          target.width,
-
-        targetHeight:
-          target.height,
-
-        sourceWidth:
-          prepared.sourceWidth,
-
-        sourceHeight:
-          prepared.sourceHeight,
+        sourceWidth,
+        sourceHeight,
+        left,
+        right,
       }
     );
 
     /*
-     * QUAN TRỌNG:
-     *
-     * OpenAI SDK cần File/Uploadable.
-     *
-     * Không truyền Buffer trực tiếp.
+     * Nếu không phải panorama cực rộng,
+     * dùng một lần outpaint bình thường.
      */
-    const imageFile =
-      await toFile(
-        prepared.canvas,
-        "canvas.png",
-        {
-          type: "image/png",
-        }
+
+    if (
+      right <= 32 &&
+      left <= 32
+    ) {
+      const mask =
+        await createMask(
+          target,
+          0,
+          0
+        );
+
+      const prompt =
+        buildLeftPrompt({
+          content,
+          designType,
+          width: w,
+          height: h,
+          unit,
+          style,
+        });
+
+      const result =
+        await runOutpaint({
+          canvas,
+          mask,
+          prompt,
+        });
+
+      const finalBuffer =
+        await sharp(result)
+          .resize({
+            width: target.width,
+            height: target.height,
+            fit: "contain",
+            background: {
+              r: 255,
+              g: 255,
+              b: 255,
+              alpha: 1,
+            },
+          })
+          .png({
+            compressionLevel: 9,
+          })
+          .toBuffer();
+
+      return res.status(200).json({
+        image:
+          `data:image/png;base64,${finalBuffer.toString(
+            "base64"
+          )}`,
+
+        width: target.width,
+        height: target.height,
+
+        targetWidth: target.width,
+        targetHeight: target.height,
+
+        ratio,
+
+        method:
+          "AI_MASK_OUTPAINT_SINGLE",
+
+        promptVersion:
+          "AI-DESIGN-PRINT-OUTPAINT-V5",
+
+        success: true,
+      });
+    }
+
+    /*
+     * ======================================
+     * PANORAMA EXTREME
+     *
+     * LƯỢT 1:
+     * CHỈ MỞ RỘNG BÊN TRÁI
+     * ======================================
+     */
+
+    console.log(
+      "PANORAMA PASS 1: LEFT"
+    );
+
+    const leftMaskWidth =
+      Math.max(
+        32,
+        Math.min(
+          target.width,
+          left
+        )
       );
 
-    const maskFile =
-      await toFile(
-        prepared.mask,
-        "mask.png",
-        {
-          type: "image/png",
-        }
+    const leftMask =
+      await createMask(
+        target,
+        leftMaskWidth,
+        0
       );
 
-    const prompt =
-      buildPrompt({
+    const leftPrompt =
+      buildLeftPrompt({
         content,
         designType,
         width: w,
@@ -450,49 +745,65 @@ export default async function handler(req, res) {
         style,
       });
 
-    console.log(
-      "AI DESIGN PRINT: sending image + mask to OpenAI"
-    );
-
-    const response =
-      await openai.images.edit({
-        model: "gpt-image-2",
-
-        image: imageFile,
-
-        mask: maskFile,
-
-        prompt,
-
-        size: "auto",
-
-        quality: "high",
-
-        output_format: "png",
+    const leftResult =
+      await runOutpaint({
+        canvas,
+        mask: leftMask,
+        prompt: leftPrompt,
       });
 
-    const resultBase64 =
-      response?.data?.[0]?.b64_json;
+    /*
+     * ======================================
+     * LƯỢT 2:
+     * MỞ RỘNG BÊN PHẢI
+     * ======================================
+     */
 
-    if (!resultBase64) {
-      throw new Error(
-        "OpenAI không trả về ảnh sau khi edit."
-      );
-    }
+    console.log(
+      "PANORAMA PASS 2: RIGHT"
+    );
 
-    const resultBuffer =
-      Buffer.from(
-        resultBase64,
-        "base64"
+    const rightMaskWidth =
+      Math.max(
+        32,
+        Math.min(
+          target.width,
+          right
+        )
       );
+
+    const rightMask =
+      await createMask(
+        target,
+        0,
+        rightMaskWidth
+      );
+
+    const rightPrompt =
+      buildRightPrompt({
+        content,
+        designType,
+        width: w,
+        height: h,
+        unit,
+        style,
+      });
+
+    const finalResult =
+      await runOutpaint({
+        canvas: leftResult,
+        mask: rightMask,
+        prompt: rightPrompt,
+      });
 
     /*
-     * Đảm bảo ảnh cuối đúng tỷ lệ.
-     *
-     * KHÔNG dùng fit: fill.
+     * ======================================
+     * CHUẨN HÓA ẢNH CUỐI
+     * ======================================
      */
+
     const finalBuffer =
-      await sharp(resultBuffer)
+      await sharp(finalResult)
         .resize({
           width: target.width,
           height: target.height,
@@ -515,14 +826,25 @@ export default async function handler(req, res) {
       )}`;
 
     console.log(
-      "AI DESIGN PRINT OUTPAINT SUCCESS:",
-      {
-        width: target.width,
-        height: target.height,
-        ratio:
-          target.width /
-          target.height,
-      }
+      "========================================"
+    );
+
+    console.log(
+      "AI DESIGN PRINT PANORAMA SUCCESS"
+    );
+
+    console.log({
+      finalWidth: target.width,
+      finalHeight: target.height,
+      finalRatio:
+        target.width /
+        target.height,
+      method:
+        "AI_TWO_PASS_LEFT_RIGHT_OUTPAINT",
+    });
+
+    console.log(
+      "========================================"
     );
 
     return res.status(200).json({
@@ -537,16 +859,16 @@ export default async function handler(req, res) {
       ratio,
 
       method:
-        "AI_MASK_OUTPAINT_TOFILE",
+        "AI_TWO_PASS_LEFT_RIGHT_OUTPAINT",
 
       promptVersion:
-        "AI-DESIGN-PRINT-OUTPAINT-V4",
+        "AI-DESIGN-PRINT-OUTPAINT-V5",
 
       success: true,
     });
   } catch (error) {
     console.error(
-      "AI DESIGN PRINT OUTPAINT ERROR:",
+      "AI DESIGN PRINT PANORAMA OUTPAINT ERROR:",
       error
     );
 
