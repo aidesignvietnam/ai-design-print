@@ -73,22 +73,27 @@ function App() {
 
   /*
    * =====================================================
-   * GENERATE DESIGN
-   *
-   * QUAN TRỌNG:
-   *
-   * Không gọi /api/edit nữa.
-   *
-   * Kích thước W × H được gửi trực tiếp cho
-   * /api/generate để AI biết bố cục ngay từ đầu.
+   * XÁC ĐỊNH KHI NÀO CẦN AI MỞ RỘNG
    *
    * Ví dụ:
    *
-   * 400 × 70 cm
+   * 400 × 70
+   * ratio = 5.714
+   * → ULTRA WIDE
+   * → gọi /api/edit sau khi generate
    *
-   * → ratio 5.714:1
-   * → generate.js nhận biết ULTRA_WIDE
-   * → AI tạo một bố cục duy nhất.
+   * Các thiết kế bình thường:
+   * → chỉ gọi /api/generate
+   * =====================================================
+   */
+
+  const needsAspectExpansion = (ratio) => {
+    return ratio >= 2.5 || ratio <= 0.7;
+  };
+
+  /*
+   * =====================================================
+   * GENERATE DESIGN
    * =====================================================
    */
 
@@ -112,6 +117,9 @@ function App() {
 
     const aspectRatio = getAspectRatio(w, h);
 
+    const requiresExpansion =
+      needsAspectExpansion(aspectRatio);
+
     setGenerating(true);
     setGeneratedImage(null);
     setError("");
@@ -122,12 +130,13 @@ function App() {
 
     try {
       /*
-       * -------------------------------------------------
-       * GENERATE TRỰC TIẾP
-       * -------------------------------------------------
+       * =================================================
+       * BƯỚC 1
+       * AI TẠO THIẾT KẾ GỐC
+       * =================================================
        */
 
-      const response = await fetch(
+      const generateResponse = await fetch(
         "/api/generate",
         {
           method: "POST",
@@ -149,66 +158,142 @@ function App() {
         }
       );
 
-      /*
-       * Đọc response an toàn.
-       *
-       * Nếu server có lỗi HTML/plain text,
-       * không còn lỗi:
-       *
-       * Unexpected token 'A'
-       */
-      const responseText =
-        await response.text();
+      const generateText =
+        await generateResponse.text();
 
-      let data = {};
+      let generateData = {};
 
       try {
-        data = responseText
-          ? JSON.parse(responseText)
+        generateData = generateText
+          ? JSON.parse(generateText)
           : {};
       } catch {
         throw new Error(
-          responseText ||
+          generateText ||
             "Server không trả về dữ liệu JSON hợp lệ."
         );
       }
 
-      if (!response.ok) {
+      if (!generateResponse.ok) {
         throw new Error(
-          data.error ||
+          generateData.error ||
             "Không thể tạo thiết kế."
         );
       }
 
-      if (!data.image) {
+      if (!generateData.image) {
         throw new Error(
           "AI không trả về hình ảnh."
         );
       }
 
+      let finalImage =
+        generateData.image;
+
       /*
-       * -------------------------------------------------
-       * HIỂN THỊ TRỰC TIẾP ẢNH AI
+       * =================================================
+       * BƯỚC 2
+       * NẾU TỶ LỆ QUÁ RỘNG / QUÁ CAO
        *
-       * KHÔNG gọi /api/edit.
-       * KHÔNG ghép ảnh.
-       * KHÔNG đặt ảnh gốc lên giữa.
-       * -------------------------------------------------
+       * Gọi /api/edit để AI mở rộng phần nền.
+       *
+       * Ví dụ:
+       * 400 × 70
+       * 500 × 80
+       * 300 × 50
+       *
+       * sẽ đi qua bước này.
+       * =================================================
        */
 
-      setGeneratedImage(data.image);
+      if (requiresExpansion) {
+        setProcessingStep(
+          `AI đang mở rộng thiết kế theo tỷ lệ ${w} × ${h} ${unit}...`
+        );
+
+        const editResponse = await fetch(
+          "/api/edit",
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body: JSON.stringify({
+              image: finalImage,
+
+              editPrompt:
+                "Mở rộng thiết kế theo đúng tỷ lệ kích thước yêu cầu. Giữ nguyên nội dung chính, không nhân đôi người, sản phẩm, logo hoặc chữ. Chỉ mở rộng nền và môi trường một cách tự nhiên.",
+
+              content: prompt,
+
+              designType,
+
+              width: w,
+              height: h,
+
+              targetWidth: w,
+              targetHeight: h,
+
+              unit,
+              style,
+            }),
+          }
+        );
+
+        const editText =
+          await editResponse.text();
+
+        let editData = {};
+
+        try {
+          editData = editText
+            ? JSON.parse(editText)
+            : {};
+        } catch {
+          throw new Error(
+            editText ||
+              "Server mở rộng ảnh không trả về JSON hợp lệ."
+          );
+        }
+
+        if (!editResponse.ok) {
+          throw new Error(
+            editData.error ||
+              "Không thể mở rộng thiết kế."
+          );
+        }
+
+        if (!editData.image) {
+          throw new Error(
+            "AI không trả về ảnh sau khi mở rộng."
+          );
+        }
+
+        finalImage =
+          editData.image;
+      }
+
+      /*
+       * =================================================
+       * BƯỚC 3
+       * ĐƯA ẢNH CUỐI CÙNG VÀO PREVIEW
+       * =================================================
+       */
+
+      setGeneratedImage(finalImage);
 
       setProcessingStep(
-        "Hoàn tất thiết kế."
+        requiresExpansion
+          ? "Đã tạo và mở rộng thiết kế hoàn tất."
+          : "Hoàn tất thiết kế."
       );
 
-      /*
-       * Để người dùng thấy trạng thái hoàn tất
-       * trong thời gian ngắn rồi xóa.
-       */
       setTimeout(() => {
         setProcessingStep("");
-      }, 800);
+      }, 1000);
 
     } catch (err) {
       console.error(
@@ -232,12 +317,7 @@ function App() {
    * =====================================================
    * EDIT DESIGN
    *
-   * Chức năng này vẫn giữ nguyên.
-   *
-   * Nó chỉ chạy khi người dùng chủ động nhập
-   * yêu cầu chỉnh sửa và bấm:
-   *
-   * CHỈNH SỬA THIẾT KẾ
+   * Chỉnh sửa thủ công sau khi đã có thiết kế.
    * =====================================================
    */
 
@@ -276,6 +356,8 @@ function App() {
             image: generatedImage,
 
             editPrompt,
+
+            content: prompt,
 
             designType,
 
