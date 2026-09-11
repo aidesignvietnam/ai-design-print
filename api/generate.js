@@ -5,7 +5,7 @@ const openai = new OpenAI({
 });
 
 // =====================================================
-// HELPERS
+// TỶ LỆ & KÍCH THƯỚC
 // =====================================================
 
 function getRatio(width, height) {
@@ -37,12 +37,6 @@ function classifyLayout(ratio) {
 }
 
 function getOutputSize(ratio) {
-  /*
-   * GPT Image hỗ trợ các kích thước chuẩn.
-   * Với banner quá rộng/quá cao, ta tạo ảnh nền phù hợp
-   * rồi frontend/backend sẽ xử lý mở rộng tiếp.
-   */
-
   if (ratio >= 1.5) {
     return "1536x1024";
   }
@@ -59,7 +53,7 @@ function needsOutpaint(ratio) {
 }
 
 // =====================================================
-// CONVERT DATA URL → FILE
+// DATA URL → FILE
 // =====================================================
 
 async function dataUrlToFile(dataUrl) {
@@ -110,7 +104,7 @@ async function dataUrlToFile(dataUrl) {
 }
 
 // =====================================================
-// BUILD PROMPT
+// PROMPT
 // =====================================================
 
 function buildPrompt({
@@ -121,7 +115,7 @@ function buildPrompt({
   prompt,
   style,
   designPlan,
-  uploadedImage,
+  hasReferenceImage,
 }) {
   const planText =
     designPlan &&
@@ -133,133 +127,271 @@ function buildPrompt({
         )
       : "";
 
-  let finalPrompt = `
-You are a professional advertising graphic designer
-specialized in large-format printing, banners, backdrops,
-signage, posters and commercial advertising.
+  // ===================================================
+  // TRƯỜNG HỢP CÓ ẢNH KHÁCH GỬI
+  // ===================================================
 
-Create a professional ${designType} design.
+  if (hasReferenceImage) {
+    return `
+You are an expert advertising graphic designer and art director
+specialized in professional large-format printing.
 
-TARGET SIZE:
+You are given TWO sources of information:
+
+1. A reference photo supplied by the customer.
+2. A new design brief supplied by the customer.
+
+The reference photo may be a photograph of an old banner,
+backdrop, signboard, poster, printed advertisement or another
+real-world design.
+
+IMPORTANT:
+
+THE REFERENCE IMAGE IS NOT A LAYOUT TEMPLATE.
+
+DO NOT COPY THE ORIGINAL COMPOSITION.
+
+DO NOT RECREATE THE SAME LAYOUT.
+
+DO NOT SIMPLY IMPROVE THE ORIGINAL IMAGE.
+
+Instead, first understand the information contained in the
+reference image, then CREATE A NEW PROFESSIONAL DESIGN.
+
+=====================================================
+CUSTOMER REQUEST
+=====================================================
+
+Design type:
+${designType}
+
+Final physical size:
 ${width} × ${height} ${unit}
 
-VISUAL STYLE:
+Visual style:
 ${style}
 
-CLIENT DESIGN BRIEF:
+Customer instruction:
 ${prompt}
 
-DESIGN PLAN:
+=====================================================
+DESIGN PLAN
+=====================================================
+
 ${planText}
 
-IMPORTANT DESIGN REQUIREMENTS:
+=====================================================
+REFERENCE IMAGE INSTRUCTIONS
+=====================================================
 
-1. Treat the requested dimensions as the final physical
-   print proportion.
+Analyze the supplied reference image and identify useful
+information such as:
 
-2. Use the entire visual canvas effectively.
+- exact visible wording
+- subject matter
+- people
+- products
+- logos
+- important symbols
+- important objects
+- colors
+- brand identity
+- theme
+- event information
+- visual style
+- overall message
 
-3. Create a professional advertising composition,
-   not a generic AI artwork.
+USE THE INFORMATION.
 
-4. Establish a clear hierarchy:
-   - main headline
-   - supporting information
-   - visual subject
-   - decorative elements
-   - background
+BUT DO NOT COPY THE ORIGINAL LAYOUT.
 
-5. Keep important text and visual subjects large enough
-   to be readable when printed.
+The new design MUST have a clearly different composition.
 
-6. Do not squeeze the design into a tiny area in the center.
+Change the visual structure substantially.
 
-7. Do not create unnecessary empty white borders.
+For example:
 
-8. Do not create a three-panel layout.
+- move the main headline to a better position
+- change the relationship between headline and visual
+- redesign the background
+- create a stronger focal point
+- reorganize supporting information
+- change decorative elements
+- improve spacing
+- improve typography hierarchy
+- create better visual balance
+- use more dynamic visual flow
+- make the design more attractive and professional
 
-9. Do not duplicate people, products, logos or important
-   objects.
+The result should look like a PROFESSIONAL DESIGNER CREATED
+A NEW DESIGN BASED ON THE CUSTOMER'S INFORMATION.
 
-10. Maintain strong visual balance from edge to edge.
+=====================================================
+VERY IMPORTANT
+=====================================================
 
-11. Leave appropriate safe margins for printing.
+The customer specifically wants a NEW COMPOSITION.
 
-12. Use professional typography and advertising composition.
+Therefore:
 
-13. The final artwork must look like a real professional
-   advertising design prepared for print production.
+DO NOT reproduce the original arrangement.
 
-14. If the client provides exact wording, preserve the
-   wording and spelling as accurately as possible.
+DO NOT keep the same text positions.
 
-15. Do not add unrelated text.
+DO NOT keep the same object positions unless necessary
+for identity or brand recognition.
 
-16. Do not add fake phone numbers, fake addresses,
-   fake logos or unrelated information.
-`;
+DO NOT make a near-copy of the reference.
 
-  if (uploadedImage) {
-    finalPrompt += `
+DO NOT put everything into the same central cluster.
 
-REFERENCE IMAGE:
+DO NOT make the result look like a simple redraw.
 
-A reference image has been supplied separately.
+CREATE A FRESH ART-DIRECTED COMPOSITION.
 
-Use the reference image as an important visual reference.
-Analyze its:
-- composition
-- visual hierarchy
-- color direction
-- subject placement
-- typography style
-- decorative elements
-- overall advertising style
+=====================================================
+TEXT
+=====================================================
 
-Create a new professional design based on the reference,
-while following the client's new brief and requested
-dimensions.
+If readable text exists in the reference image and is relevant
+to the customer request, preserve the important wording.
 
-Do NOT simply display the reference image unchanged.
+If the customer gives new wording, prioritize the customer's
+new wording.
 
-Preserve useful visual characteristics from the reference,
-but adapt the composition intelligently to the requested
-design.
+Do not invent unrelated information.
 
-If the reference contains a person, product, logo or major
-visual element that should remain recognizable, preserve
-its identity and overall appearance.
+Do not invent phone numbers.
 
-Do not randomly replace important elements.
+Do not invent addresses.
+
+Do not invent logos.
+
+=====================================================
+QUALITY
+=====================================================
+
+The final design must be:
+
+- professional
+- attractive
+- modern
+- visually balanced
+- suitable for advertising
+- suitable for large-format printing
+- clear at a distance
+- visually engaging
+- not cluttered
+- not boring
+- not a copy of the reference
+
+Use the entire canvas effectively.
+
+Create a strong hierarchy:
+
+1. Main message
+2. Important supporting message
+3. Main visual subject
+4. Secondary information
+5. Decorative/background elements
+
+Make the main content large and readable.
+
+Avoid unnecessary empty areas.
+
+Avoid a tiny design floating in the middle.
+
+Avoid three-panel compositions.
+
+The final result must feel like a NEW PROFESSIONAL
+ADVERTISING DESIGN.
 `;
   }
 
-  finalPrompt += `
+  // ===================================================
+  // TRƯỜNG HỢP KHÔNG CÓ ẢNH
+  // ===================================================
 
-FINAL OUTPUT:
+  return `
+You are an expert advertising graphic designer and art director
+specialized in professional large-format printing.
 
-Professional commercial advertising artwork suitable for
-large-format printing.
+Create a professional ${designType} design.
 
-Use the full canvas.
-Strong composition.
-Clear hierarchy.
-Professional visual design.
-No unnecessary borders.
-No tiny centered composition.
+=====================================================
+SIZE
+=====================================================
+
+${width} × ${height} ${unit}
+
+=====================================================
+STYLE
+=====================================================
+
+${style}
+
+=====================================================
+CUSTOMER REQUEST
+=====================================================
+
+${prompt}
+
+=====================================================
+DESIGN PLAN
+=====================================================
+
+${planText}
+
+=====================================================
+DESIGN REQUIREMENTS
+=====================================================
+
+Create a complete professional advertising composition.
+
+Use the entire canvas effectively.
+
+Create a strong visual hierarchy:
+
+- main headline
+- supporting information
+- main visual
+- secondary information
+- background
+- decorative elements
+
+Important text must be large and readable.
+
+Do not create a tiny centered composition.
+
+Do not create unnecessary white borders.
+
+Do not create a three-panel layout.
+
+Do not duplicate people, products or important objects.
+
+Do not add unrelated text.
+
+Do not invent phone numbers or addresses.
+
+The design should look like professional commercial
+advertising artwork prepared for printing.
+
+Make the composition attractive, modern and visually balanced.
+
+=====================================================
+FINAL OUTPUT
+=====================================================
+
+Professional advertising artwork suitable for large-format
+printing.
 `;
-
-  return finalPrompt;
 }
 
 // =====================================================
-// API HANDLER
+// API
 // =====================================================
 
-export default async function handler(
-  req,
-  res
-) {
+export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({
       error: "Method not allowed.",
@@ -279,23 +411,16 @@ export default async function handler(
       uploadedImage,
     } = req.body || {};
 
-    // ---------------------------------------------------
-    // VALIDATION
-    // ---------------------------------------------------
+    // =================================================
+    // KIỂM TRA DỮ LIỆU
+    // =================================================
 
-    const numericWidth =
-      Number(width);
-
-    const numericHeight =
-      Number(height);
+    const numericWidth = Number(width);
+    const numericHeight = Number(height);
 
     if (
-      !Number.isFinite(
-        numericWidth
-      ) ||
-      !Number.isFinite(
-        numericHeight
-      ) ||
+      !Number.isFinite(numericWidth) ||
+      !Number.isFinite(numericHeight) ||
       numericWidth <= 0 ||
       numericHeight <= 0
     ) {
@@ -316,14 +441,13 @@ export default async function handler(
       });
     }
 
-    // ---------------------------------------------------
-    // RATIO
-    // ---------------------------------------------------
+    // =================================================
+    // TỶ LỆ
+    // =================================================
 
     const ratio =
-      Number.isFinite(
-        Number(aspectRatio)
-      ) && Number(aspectRatio) > 0
+      Number.isFinite(Number(aspectRatio)) &&
+      Number(aspectRatio) > 0
         ? Number(aspectRatio)
         : getRatio(
             numericWidth,
@@ -339,25 +463,24 @@ export default async function handler(
     const expandRequired =
       needsOutpaint(ratio);
 
-    // ---------------------------------------------------
+    // =================================================
     // PROMPT
-    // ---------------------------------------------------
+    // =================================================
 
-    const finalPrompt =
-      buildPrompt({
-        designType,
-        width: numericWidth,
-        height: numericHeight,
-        unit,
-        prompt,
-        style,
-        designPlan,
-        uploadedImage:
-          uploadedImage || null,
-      });
+    const finalPrompt = buildPrompt({
+      designType,
+      width: numericWidth,
+      height: numericHeight,
+      unit,
+      prompt,
+      style,
+      designPlan,
+      hasReferenceImage:
+        Boolean(uploadedImage),
+    });
 
     console.log(
-      "AI DESIGN PRINT:",
+      "AI DESIGN PRINT GENERATE:",
       {
         designType,
         width: numericWidth,
@@ -371,21 +494,19 @@ export default async function handler(
       }
     );
 
-    // ---------------------------------------------------
-    // GENERATE IMAGE
-    // ---------------------------------------------------
+    // =================================================
+    // TẠO ẢNH
+    // =================================================
 
     let result;
 
-    // ===================================================
-    // CASE 1:
+    // -------------------------------------------------
     // KHÔNG CÓ ẢNH THAM KHẢO
-    // → images.generate()
-    // ===================================================
+    // -------------------------------------------------
 
     if (!uploadedImage) {
       console.log(
-        "Generation mode: CREATE"
+        "MODE: CREATE NEW DESIGN"
       );
 
       result =
@@ -402,15 +523,13 @@ export default async function handler(
         });
     }
 
-    // ===================================================
-    // CASE 2:
+    // -------------------------------------------------
     // CÓ ẢNH THAM KHẢO
-    // → images.edit()
-    // ===================================================
+    // -------------------------------------------------
 
     else {
       console.log(
-        "Generation mode: REFERENCE IMAGE EDIT"
+        "MODE: REFERENCE → NEW DESIGN"
       );
 
       const referenceFile =
@@ -434,9 +553,9 @@ export default async function handler(
         });
     }
 
-    // ---------------------------------------------------
-    // CHECK RESULT
-    // ---------------------------------------------------
+    // =================================================
+    // KIỂM TRA KẾT QUẢ
+    // =================================================
 
     if (
       !result ||
@@ -451,7 +570,7 @@ export default async function handler(
     const imageData =
       result.data[0];
 
-    let imageBase64 =
+    const imageBase64 =
       imageData.b64_json;
 
     if (!imageBase64) {
@@ -464,11 +583,13 @@ export default async function handler(
       "data:image/png;base64," +
       imageBase64;
 
-    // ---------------------------------------------------
-    // RESPONSE
-    // ---------------------------------------------------
+    // =================================================
+    // TRẢ KẾT QUẢ
+    // =================================================
 
     return res.status(200).json({
+      success: true,
+
       image,
 
       width: numericWidth,
@@ -490,9 +611,8 @@ export default async function handler(
         expandRequired,
 
       promptVersion:
-        "AI DESIGN PRINT V1.0 PRO",
+        "AI DESIGN PRINT V1.0 PRO - REDESIGN",
 
-      success: true,
     });
   } catch (error) {
     console.error(
