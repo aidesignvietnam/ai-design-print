@@ -1235,59 +1235,55 @@ function App() {
               AI EDIT
           ================================================= */}
 
-          {generatedImage && (
+       {/* =================================================
+    AI EDIT
+================================================= */}
 
-            <div className="edit-design-panel">
+<div className="edit-design-panel">
 
-              <div className="edit-design-label">
+  <div className="edit-design-label">
 
-                <span>
-                  AI EDIT
-                </span>
+    <span>
+      AI EDIT
+    </span>
 
-                <small>
-                  CHỈNH SỬA THIẾT KẾ
-                </small>
+    <small>
+      CHỈNH SỬA THIẾT KẾ
+    </small>
 
-              </div>
+  </div>
 
-              <textarea
-                className="edit-design-input"
-                placeholder="Nhập yêu cầu chỉnh sửa thiết kế..."
-                rows="2"
-                value={
-                  editPrompt
-                }
-                onChange={(e) =>
-                  setEditPrompt(
-                    e.target.value
-                  )
-                }
-                disabled={
-                  !toolOn
-                }
-              />
+  <textarea
+    className="edit-design-input"
+    placeholder={
+      generatedImage
+        ? "Nhập yêu cầu chỉnh sửa thiết kế..."
+        : "Tạo thiết kế trước để có thể chỉnh sửa..."
+    }
+    rows="2"
+    value={editPrompt}
+    onChange={(e) =>
+      setEditPrompt(e.target.value)
+    }
+    disabled={!toolOn || !generatedImage}
+  />
 
-              <button
-                className="edit-design-button"
-                onClick={
-                  handleEdit
-                }
-                disabled={
-                  !toolOn ||
-                  !editPrompt.trim() ||
-                  generating
-                }
-              >
-                {generating
-                  ? "ĐANG XỬ LÝ..."
-                  : "✦ CHỈNH SỬA"}
-              </button>
+  <button
+    className="edit-design-button"
+    onClick={handleEdit}
+    disabled={
+      !toolOn ||
+      !generatedImage ||
+      !editPrompt.trim() ||
+      generating
+    }
+  >
+    {generating
+      ? "ĐANG XỬ LÝ..."
+      : "✦ CHỈNH SỬA"}
+  </button>
 
-            </div>
-
-          )}
-
+</div>
           {/* =================================================
               CANVAS BOTTOM
           ================================================= */}
