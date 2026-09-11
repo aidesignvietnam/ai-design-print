@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import OpenAI, { toFile } from "openai";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -7,7 +7,7 @@ const openai = new OpenAI({
 // ------------------------------------------------------------
 // AI DESIGN PRINT
 // PANORAMA GENERATION ENGINE V5
-// WITH REFERENCE IMAGE
+// REFERENCE IMAGE ENGINE
 // ------------------------------------------------------------
 
 function getRatio(width, height) {
@@ -21,6 +21,10 @@ function getRatio(width, height) {
   return w / h;
 }
 
+// ------------------------------------------------------------
+// LAYOUT CLASSIFICATION
+// ------------------------------------------------------------
+
 function classifyLayout(ratio) {
   if (ratio >= 5) return "PANORAMA_EXTREME";
   if (ratio >= 3) return "PANORAMA_WIDE";
@@ -33,10 +37,14 @@ function classifyLayout(ratio) {
 }
 
 // ------------------------------------------------------------
-// GPT IMAGE SIZE
+// GPT IMAGE OUTPUT SIZE
 // ------------------------------------------------------------
 
 function getOutputSize(ratio) {
+  // GPT-Image-2 hỗ trợ tỷ lệ tối đa khoảng 3:1.
+  // Với panorama cực rộng, tạo ảnh trung gian 3:1
+  // rồi frontend sẽ xử lý bước mở rộng tiếp theo.
+
   if (ratio >= 3) {
     return "1536x512";
   }
@@ -57,7 +65,7 @@ function getOutputSize(ratio) {
 }
 
 // ------------------------------------------------------------
-// PANORAMA COMPOSITION
+// PANORAMA INSTRUCTION
 // ------------------------------------------------------------
 
 function buildPanoramaInstruction(ratio) {
@@ -70,9 +78,10 @@ approximately ${ratio.toFixed(2)}:1.
 
 DO NOT compose this as a centered poster.
 
-The composition MUST intentionally use the ENTIRE horizontal canvas.
+The composition MUST intentionally use the entire horizontal canvas.
 
 LEFT ZONE:
+
 - supporting visual elements
 - secondary imagery
 - environmental details
@@ -82,12 +91,14 @@ LEFT ZONE:
 - atmospheric details
 
 CENTER ZONE:
+
 - main advertising message
 - main subject
 - primary visual focus
 - strongest typography hierarchy
 
 RIGHT ZONE:
+
 - complementary imagery
 - secondary visual elements
 - environmental details
@@ -251,22 +262,18 @@ REFERENCE IMAGE:
 
 No reference image was provided.
 
-Create the artwork entirely from the client's written requirements and Design Plan.
+Create the artwork from the client's written requirements and Design Plan.
 `;
   }
 
   return `
 REFERENCE IMAGE:
 
-A reference image has been provided by the client.
+A real reference image has been provided by the client.
 
-IMPORTANT:
+YOU MUST USE THE REFERENCE IMAGE.
 
-You MUST visually inspect and use the provided reference image.
-
-The reference image is NOT merely an attachment for display.
-
-Treat it as a visual design reference.
+The reference image is a visual design instruction.
 
 Analyze:
 
@@ -285,41 +292,39 @@ Analyze:
 
 Use the reference image as a strong visual guide.
 
-PRESERVE the important visual characteristics of the reference image when appropriate.
+PRESERVE the important visual characteristics of the reference.
 
-However, do NOT blindly copy the image if doing so would conflict with:
+Do not simply ignore the reference.
 
-- requested dimensions
-- requested design type
-- client text
-- Design Plan
-- professional print composition
+Do not treat the reference as decorative content.
 
-If the reference image contains people, products, logos or important objects:
+Do not place the reference image inside the final artwork.
+
+Do not create a screenshot.
+
+Do not create a mockup.
+
+Instead, create a NEW advertising design based on the visual logic of the reference.
+
+If the reference contains people, products, logos or important objects:
 
 - preserve their visual role
 - preserve their relative importance
-- preserve the overall composition where possible
+- preserve the overall composition where appropriate
 - do not randomly replace them
 - do not duplicate them
 - do not distort them
 
-If the reference is a layout example, reproduce the DESIGN LOGIC rather than simply placing the reference image itself onto the canvas.
+If the reference is primarily a layout example:
 
-The final artwork must be a NEW PROFESSIONAL DESIGN based on the reference.
+recreate its DESIGN LOGIC rather than simply copying the image itself.
 
-Do NOT create a simple screenshot-like copy.
-
-Do NOT place the reference image inside another canvas.
-
-Do NOT create a mockup.
-
-Create the actual advertising artwork itself.
+The final result must be a professional advertising artwork inspired by the reference image.
 `;
 }
 
 // ------------------------------------------------------------
-// PROMPT
+// DESIGN PROMPT
 // ------------------------------------------------------------
 
 function buildPrompt({
@@ -334,13 +339,20 @@ function buildPrompt({
   designPlan,
   hasReferenceImage,
 }) {
-  const panoramaInstruction = buildPanoramaInstruction(ratio);
+  const panoramaInstruction =
+    buildPanoramaInstruction(ratio);
 
   const referenceInstruction =
-    buildReferenceInstruction(hasReferenceImage);
+    buildReferenceInstruction(
+      hasReferenceImage
+    );
 
   const planText = designPlan
-    ? JSON.stringify(designPlan, null, 2)
+    ? JSON.stringify(
+        designPlan,
+        null,
+        2
+      )
     : "No Design Plan available.";
 
   return `
@@ -350,33 +362,40 @@ You are a senior professional advertising designer specializing in:
 - advertising backdrops
 - banners
 - billboards
-- event graphics
 - commercial signage
+- event graphics
 - professional print design
 
 PROJECT:
+
 AI DESIGN PRINT
 
 DESIGN TYPE:
+
 ${designType}
 
 REQUESTED PHYSICAL SIZE:
+
 ${width} × ${height} ${unit}
 
 REQUESTED ASPECT RATIO:
+
 ${ratio.toFixed(3)}:1
 
 LAYOUT CLASS:
+
 ${layout}
 
 DESIGN STYLE:
+
 ${style || "Hiện đại"}
 
 CLIENT CONTENT:
+
 ${prompt || "Create an attractive professional advertising design."}
 
 ------------------------------------------------------------
-DESIGN PLAN FROM AI ART DIRECTOR
+AI ART DIRECTOR DESIGN PLAN
 ------------------------------------------------------------
 
 ${planText}
@@ -397,11 +416,11 @@ ${panoramaInstruction}
 GENERAL DESIGN RULES
 ------------------------------------------------------------
 
-1. The requested physical dimensions are extremely important.
+1. Respect the requested physical dimensions.
 
 2. Respect the intended aspect ratio.
 
-3. Compose for large-format printing.
+3. Compose specifically for large-format printing.
 
 4. Keep typography highly readable.
 
@@ -427,15 +446,15 @@ GENERAL DESIGN RULES
 
 15. Never create accidental mirrored objects.
 
-16. Never create a three-panel or triptych composition.
+16. Never create a three-panel composition.
 
 17. Never place the entire design inside a small central area.
 
-18. The background must visually support the entire canvas.
+18. The background must support the entire canvas.
 
 19. The composition must feel intentional from edge to edge.
 
-20. Use professional advertising aesthetics rather than generic AI artwork.
+20. Use professional advertising aesthetics.
 
 ------------------------------------------------------------
 TEXT HIERARCHY
@@ -443,7 +462,7 @@ TEXT HIERARCHY
 
 The client's important text must be visually prominent.
 
-Use clear hierarchy:
+Use clear hierarchy.
 
 PRIMARY:
 Main headline.
@@ -454,14 +473,14 @@ Supporting information.
 TERTIARY:
 Additional information.
 
-Do not make all text the same size.
+Do not make every text element the same size.
 
 Do not hide important text.
 
 Do not place important text directly against the edge.
 
 ------------------------------------------------------------
-EXTREME-WIDE FORMATS
+EXTREME-WIDE FORMAT
 ------------------------------------------------------------
 
 For extremely wide designs:
@@ -476,7 +495,9 @@ The sides should contain complementary graphics, environmental details, decorati
 
 All areas must connect naturally into ONE continuous visual scene.
 
-Do NOT simply place a normal poster in the middle and extend an empty background around it.
+Do NOT simply place a normal poster in the middle.
+
+Do NOT extend an empty background around a small poster.
 
 Do NOT intentionally leave large blank areas on the left or right.
 
@@ -486,7 +507,7 @@ Do NOT use a fake canvas.
 
 Do NOT use a mockup.
 
-Create ONLY the artwork itself.
+Create ONLY the actual advertising artwork.
 
 ------------------------------------------------------------
 REFERENCE IMAGE PRIORITY
@@ -504,12 +525,10 @@ Preserve the strongest characteristics of the reference while improving:
 - readability
 - proportions
 - panoramic distribution
-- professional advertising quality
+- advertising quality
 - print suitability
 
 Do not ignore the reference.
-
-Do not treat it as decorative content.
 
 ------------------------------------------------------------
 FINAL QUALITY
@@ -538,10 +557,60 @@ The final result must look intentionally designed by a professional advertising 
 }
 
 // ------------------------------------------------------------
+// DATA URL → FILE
+// ------------------------------------------------------------
+
+async function dataUrlToFile(dataUrl) {
+  if (
+    typeof dataUrl !== "string" ||
+    !dataUrl.startsWith("data:image/")
+  ) {
+    throw new Error(
+      "Ảnh tham khảo không đúng định dạng."
+    );
+  }
+
+  const match = dataUrl.match(
+    /^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/
+  );
+
+  if (!match) {
+    throw new Error(
+      "Không đọc được dữ liệu ảnh tham khảo."
+    );
+  }
+
+  const mimeType = match[1];
+  const base64Data = match[2];
+
+  const extension =
+    mimeType === "image/jpeg"
+      ? "jpg"
+      : mimeType.split("/")[1] || "png";
+
+  const buffer =
+    Buffer.from(
+      base64Data,
+      "base64"
+    );
+
+  return toFile(
+    buffer,
+    "reference." + extension,
+    {
+      type: mimeType,
+    }
+  );
+}
+
+// ------------------------------------------------------------
 // API HANDLER
 // ------------------------------------------------------------
 
-export default async function handler(req, res) {
+export default async function handler(
+  req,
+  res
+) {
   if (req.method !== "POST") {
     return res.status(405).json({
       error: "Method not allowed",
@@ -575,85 +644,152 @@ export default async function handler(req, res) {
         ? Number(aspectRatio)
         : getRatio(w, h);
 
-    const layout = classifyLayout(ratio);
+    const layout =
+      classifyLayout(ratio);
 
-    const outputSize = getOutputSize(ratio);
+    const outputSize =
+      getOutputSize(ratio);
 
     const hasReferenceImage =
       typeof uploadedImage === "string" &&
-      uploadedImage.startsWith("data:image/");
+      uploadedImage.startsWith(
+        "data:image/"
+      );
 
-    const finalPrompt = buildPrompt({
-      designType,
-      width: w,
-      height: h,
-      unit,
-      prompt,
-      style,
-      ratio,
-      layout,
-      designPlan,
-      hasReferenceImage,
-    });
+    const finalPrompt =
+      buildPrompt({
+        designType,
+        width: w,
+        height: h,
+        unit,
+        prompt,
+        style,
+        ratio,
+        layout,
+        designPlan,
+        hasReferenceImage,
+      });
 
-    console.log("========================================");
-    console.log("AI DESIGN PRINT GENERATE V5");
+    console.log(
+      "========================================"
+    );
+
+    console.log(
+      "AI DESIGN PRINT GENERATE V5"
+    );
+
     console.log("width:", w);
     console.log("height:", h);
     console.log("unit:", unit);
     console.log("ratio:", ratio);
     console.log("layout:", layout);
-    console.log("outputSize:", outputSize);
-    console.log("hasReferenceImage:", hasReferenceImage);
-    console.log("hasDesignPlan:", Boolean(designPlan));
-    console.log("========================================");
+    console.log(
+      "outputSize:",
+      outputSize
+    );
+    console.log(
+      "hasReferenceImage:",
+      hasReferenceImage
+    );
+    console.log(
+      "hasDesignPlan:",
+      Boolean(designPlan)
+    );
+
+    console.log(
+      "========================================"
+    );
 
     // --------------------------------------------------------
-    // BUILD IMAGE GENERATION REQUEST
+    // MODE 1:
+    // NO REFERENCE IMAGE
     // --------------------------------------------------------
 
-    let result;
+    if (!hasReferenceImage) {
+      console.log(
+        "GENERATION MODE: TEXT ONLY"
+      );
 
-    if (hasReferenceImage) {
-      console.log("REFERENCE IMAGE: ENABLED");
+      const result =
+        await openai.images.generate({
+          model: "gpt-image-2",
 
-      result = await openai.images.generate({
-        model: "gpt-image-2",
+          prompt: finalPrompt,
 
-        prompt: finalPrompt,
+          size: outputSize,
 
-        size: outputSize,
+          quality: "high",
 
-        quality: "high",
+          output_format: "png",
+        });
 
-        output_format: "png",
+      const imageBase64 =
+        result?.data?.[0]?.b64_json;
 
-        input_images: [
-          uploadedImage,
-        ],
-      });
-    } else {
-      console.log("REFERENCE IMAGE: NOT PROVIDED");
+      if (!imageBase64) {
+        throw new Error(
+          "AI không trả về hình ảnh."
+        );
+      }
 
-      result = await openai.images.generate({
-        model: "gpt-image-2",
+      const image =
+        "data:image/png;base64," +
+        imageBase64;
 
-        prompt: finalPrompt,
-
-        size: outputSize,
-
-        quality: "high",
-
-        output_format: "png",
+      return res.status(200).json({
+        image,
+        width: w,
+        height: h,
+        unit,
+        ratio,
+        layout,
+        outputSize,
+        hasReferenceImage: false,
+        needsOutpaint:
+          ratio >= 2.5 ||
+          ratio <= 0.7,
+        promptVersion:
+          "AI-DESIGN-PRINT-V5-TEXT-PANORAMA",
       });
     }
+
+    // --------------------------------------------------------
+    // MODE 2:
+    // REFERENCE IMAGE
+    // --------------------------------------------------------
+
+    console.log(
+      "GENERATION MODE: REFERENCE IMAGE"
+    );
+
+    const referenceFile =
+      await dataUrlToFile(
+        uploadedImage
+      );
+
+    const result =
+      await openai.images.edit({
+        model: "gpt-image-2",
+
+        image: referenceFile,
+
+        prompt: finalPrompt,
+
+        size: outputSize,
+
+        quality: "high",
+
+        output_format: "png",
+
+        input_fidelity: "high",
+      });
 
     const imageBase64 =
       result?.data?.[0]?.b64_json;
 
     if (!imageBase64) {
       throw new Error(
-        "AI không trả về hình ảnh."
+        "AI không trả về hình ảnh sau khi sử dụng ảnh mẫu."
       );
     }
 
@@ -676,21 +812,29 @@ export default async function handler(req, res) {
 
       outputSize,
 
-      hasReferenceImage,
+      hasReferenceImage: true,
 
       needsOutpaint:
         ratio >= 2.5 ||
         ratio <= 0.7,
 
       promptVersion:
-        "AI-DESIGN-PRINT-V5-REFERENCE-IMAGE-PANORAMA",
+        "AI-DESIGN-PRINT-V5-REFERENCE-PANORAMA",
     });
   } catch (error) {
+    console.error(
+      "========================================"
+    );
+
     console.error(
       "AI DESIGN PRINT GENERATE ERROR:"
     );
 
     console.error(error);
+
+    console.error(
+      "========================================"
+    );
 
     return res.status(500).json({
       error:
