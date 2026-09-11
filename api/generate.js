@@ -1,9 +1,161 @@
+```javascript
 import OpenAI from "openai";
 import sharp from "sharp";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
+
+function classifyLayout(aspectRatio) {
+  if (aspectRatio >= 4) return "ULTRA_WIDE";
+  if (aspectRatio >= 2) return "WIDE";
+  if (aspectRatio >= 1.15) return "LANDSCAPE";
+  if (aspectRatio <= 0.5) return "ULTRA_TALL";
+  if (aspectRatio <= 0.87) return "PORTRAIT";
+  return "SQUARE";
+}
+
+function getOutputSize(layoutType) {
+  /*
+   * GPT Image có các kích thước chuẩn cho generation.
+   *
+   * Với banner cực rộng:
+   * KHÔNG cố ép model tạo 400:70 trực tiếp ở bước đầu.
+   *
+   * Chúng ta tạo artwork chất lượng cao trước,
+   * sau đó main.jsx -> edit.js sẽ xử lý expansion.
+   */
+
+  if (layoutType === "PORTRAIT" || layoutType === "ULTRA_TALL") {
+    return "1024x1536";
+  }
+
+  if (layoutType === "SQUARE") {
+    return "1024x1024";
+  }
+
+  return "1536x1024";
+}
+
+function buildLayoutInstruction({
+  layoutType,
+  width,
+  height,
+  unit,
+  aspectRatio,
+}) {
+  if (layoutType === "ULTRA_WIDE") {
+    return `
+SPECIAL FORMAT: ULTRA-WIDE LARGE-FORMAT ADVERTISING BANNER
+
+Physical target:
+${width} × ${height} ${unit}
+
+Target aspect ratio:
+${aspectRatio.toFixed(4)}:1
+
+This is an extremely wide physical banner.
+
+The first artwork is an intermediate artwork that will later be
+expanded horizontally by an AI image-editing stage.
+
+IMPORTANT:
+
+- Think like a professional large-format advertising designer.
+- Build a strong central visual composition.
+- Keep the main subject visually clear.
+- Keep important typography and logos inside a safe central zone.
+- Do not put critical information near the extreme left or right edges.
+- Do not create a vertical poster composition.
+- Do not make the central subject extremely tall.
+- Do not stretch or distort people, products, logos or objects.
+- Use a background that can naturally continue horizontally.
+- Use gradients, lighting, walls, scenery, textures, decorative shapes
+  or environmental elements that can be continued naturally.
+- Avoid complicated objects touching the outer edges.
+- Leave visual breathing room around the main subject.
+- The artwork must feel like the central section of a much wider banner.
+- Do not create obvious empty white margins.
+- Do not put important text in the areas that will later be expanded.
+
+The later expansion stage must be able to continue the background
+naturally to the left and right.
+`;
+  }
+
+  if (layoutType === "WIDE") {
+    return `
+SPECIAL FORMAT: WIDE HORIZONTAL PRINT DESIGN
+
+Target physical size:
+${width} × ${height} ${unit}
+
+Target ratio:
+${aspectRatio.toFixed(4)}:1
+
+Create a professional horizontal advertising composition.
+
+Keep:
+- main subject clear
+- typography readable
+- logo protected
+- background visually expandable
+- important information away from extreme edges
+
+Do not distort people, products, logos or text.
+`;
+  }
+
+  if (
+    layoutType === "PORTRAIT" ||
+    layoutType === "ULTRA_TALL"
+  ) {
+    return `
+SPECIAL FORMAT: VERTICAL PRINT DESIGN
+
+Target physical size:
+${width} × ${height} ${unit}
+
+Target ratio:
+${aspectRatio.toFixed(4)}:1
+
+Create a professional vertical advertising composition.
+
+Keep important text, logo and subjects inside a safe central area.
+Do not crop important information.
+Do not distort people or products.
+`;
+  }
+
+  if (layoutType === "LANDSCAPE") {
+    return `
+SPECIAL FORMAT: LANDSCAPE PRINT DESIGN
+
+Target physical size:
+${width} × ${height} ${unit}
+
+Target ratio:
+${aspectRatio.toFixed(4)}:1
+
+Create a professional horizontal advertising composition.
+
+Use balanced spacing and strong visual hierarchy.
+Keep important information away from the extreme edges.
+`;
+  }
+
+  return `
+SPECIAL FORMAT: BALANCED PRINT DESIGN
+
+Target physical size:
+${width} × ${height} ${unit}
+
+Target ratio:
+${aspectRatio.toFixed(4)}:1
+
+Create a balanced professional advertising composition.
+`;
+}
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -25,7 +177,12 @@ export default async function handler(req, res) {
     const w = Number(width);
     const h = Number(height);
 
-    if (!w || !h || w <= 0 || h <= 0) {
+    if (
+      !Number.isFinite(w) ||
+      !Number.isFinite(h) ||
+      w <= 0 ||
+      h <= 0
+    ) {
       return res.status(400).json({
         error: "Kích thước thiết kế không hợp lệ.",
       });
@@ -33,118 +190,24 @@ export default async function handler(req, res) {
 
     const aspectRatio = w / h;
 
-    /*
-     * Phân loại tỷ lệ thiết kế
-     */
-    let layoutType = "SQUARE";
+    const layoutType = classifyLayout(aspectRatio);
 
-    if (aspectRatio >= 4) {
-      layoutType = "ULTRA_WIDE";
-    } else if (aspectRatio >= 2) {
-      layoutType = "WIDE";
-    } else if (aspectRatio >= 1.15) {
-      layoutType = "LANDSCAPE";
-    } else if (aspectRatio <= 0.5) {
-      layoutType = "ULTRA_TALL";
-    } else if (aspectRatio <= 0.87) {
-      layoutType = "PORTRAIT";
-    }
+    const outputSize = getOutputSize(layoutType);
 
-    /*
-     * Chọn kích thước ảnh AI phù hợp.
-     *
-     * Lưu ý:
-     * GPT Image không phải lúc nào cũng tạo trực tiếp
-     * được tỷ lệ cực rộng như 400:70.
-     *
-     * Vì vậy với banner cực rộng, ta tạo artwork nền
-     * theo hướng landscape trước, sau đó bước xử lý
-     * tiếp theo sẽ dùng Sharp + AI edit để hoàn thiện
-     * tỷ lệ thật.
-     */
-    let outputSize = "1536x1024";
+    const layoutInstruction = buildLayoutInstruction({
+      layoutType,
+      width: w,
+      height: h,
+      unit,
+      aspectRatio,
+    });
 
-    if (layoutType === "PORTRAIT" || layoutType === "ULTRA_TALL") {
-      outputSize = "1024x1536";
-    } else if (layoutType === "SQUARE") {
-      outputSize = "1024x1024";
-    } else {
-      outputSize = "1536x1024";
-    }
-
-    /*
-     * Hướng dẫn bố cục cho AI
-     */
-    let layoutInstruction = "";
-
-    if (layoutType === "ULTRA_WIDE") {
-      layoutInstruction = `
-ULTRA-WIDE PRINT BANNER.
-
-The requested physical design ratio is approximately:
-${w}:${h} ${unit}
-= ${aspectRatio.toFixed(3)}:1.
-
-This is an extremely wide advertising banner.
-
-IMPORTANT COMPOSITION RULES:
-- Design for a very wide horizontal advertising format.
-- Keep the main subject, people, logo and important text concentrated around the central safe area.
-- Use generous empty/background space toward the left and right sides.
-- Extend scenery, gradients, lighting, decorative elements and background naturally toward both sides.
-- Do NOT place important objects close to the top or bottom edge.
-- Do NOT create a tall poster composition.
-- Do NOT squeeze the design vertically.
-- Do NOT stretch people, products, logos or typography.
-- The composition must visually feel like a professional large-format outdoor advertising banner.
-- Leave enough visual flexibility for later horizontal AI expansion.
-`;
-    } else if (layoutType === "WIDE") {
-      layoutInstruction = `
-WIDE HORIZONTAL PRINT DESIGN.
-
-Requested ratio:
-${aspectRatio.toFixed(3)}:1.
-
-Use a horizontal advertising composition.
-Keep important subjects and typography well balanced.
-Avoid placing critical elements near the edges.
-Use background space intelligently.
-`;
-    } else if (
-      layoutType === "PORTRAIT" ||
-      layoutType === "ULTRA_TALL"
-    ) {
-      layoutInstruction = `
-VERTICAL PRINT DESIGN.
-
-Requested ratio:
-${aspectRatio.toFixed(3)}:1.
-
-Use a professional vertical advertising composition.
-Keep important text and subjects inside a safe central area.
-Do not crop important elements.
-`;
-    } else {
-      layoutInstruction = `
-BALANCED PRINT DESIGN.
-
-Requested ratio:
-${aspectRatio.toFixed(3)}:1.
-
-Create a balanced professional advertising composition.
-`;
-    }
-
-    /*
-     * Prompt chính
-     */
     const designPrompt = `
-You are a professional advertising graphic designer specializing
-in large-format printing, backdrops, banners, signs and commercial
-advertising layouts.
+You are the professional advertising design engine
+inside AI DESIGN PRINT.
 
-Create a polished professional advertising design.
+Create a polished commercial advertising artwork intended
+for professional large-format printing.
 
 DESIGN TYPE:
 ${designType}
@@ -159,48 +222,57 @@ STYLE:
 ${style}
 
 USER CONTENT:
-${prompt || "Create an attractive professional design suitable for printing."}
+${prompt || "Create an attractive professional advertising design suitable for printing."}
 
 ${layoutInstruction}
 
-GENERAL DESIGN RULES:
+PROFESSIONAL DESIGN REQUIREMENTS:
 
-1. Create a professional commercial advertising layout.
-2. Make the design visually attractive and immediately readable.
+1. Create a real advertising composition, not generic artwork.
+2. Make the main visual immediately understandable.
 3. Use strong visual hierarchy.
-4. Keep important text highly legible.
-5. Use appropriate typography for large-format printing.
-6. Maintain clean spacing and alignment.
-7. Keep the main subject visually clear.
-8. Do not overcrowd the composition.
-9. Do not create unnecessary objects.
-10. Do not distort people, products, logos or text.
-11. Do not use random unreadable pseudo-text.
-12. Avoid placing critical information too close to the edges.
-13. Design with large-format printing in mind.
-14. Maintain clean professional edges.
-15. The result should look like work produced by a professional advertising designer.
+4. Make typography clean and readable.
+5. Use professional spacing and alignment.
+6. Keep important information visually protected.
+7. Do not overcrowd the design.
+8. Do not add irrelevant objects.
+9. Do not distort people.
+10. Do not distort products.
+11. Do not distort logos.
+12. Do not create unreadable fake text.
+13. Do not put important text directly against an edge.
+14. Avoid unnecessary frames around the entire artwork.
+15. Use professional commercial color relationships.
+16. Design for large-format printing and viewing from a distance.
+17. Keep the artwork visually polished and production-oriented.
 
-IMPORTANT FOR EXTREME RATIOS:
+IMPORTANT IMAGE-COMPOSITION RULE:
 
-When the requested design is extremely wide or extremely tall,
-do not try to force all content into a normal poster composition.
+For extreme aspect ratios, especially ULTRA_WIDE,
+this image is an INTERMEDIATE ARTWORK.
 
-Instead:
-- simplify the central composition,
-- keep the main visual elements in a safe area,
-- use expandable background areas,
-- allow scenery, gradients, lighting and decorative elements
-  to continue naturally,
-- avoid critical details at the extreme edges.
+The next stage of AI DESIGN PRINT will expand the artwork
+to the user's exact physical aspect ratio.
 
-The final artwork must be suitable for further aspect-ratio
-processing without stretching or distorting the actual design elements.
+Therefore:
 
-Generate the best possible professional advertising artwork.
+- Preserve a strong central composition.
+- Preserve the identity of the requested design.
+- Make the background visually continuous.
+- Avoid critical information at the far left and right.
+- Avoid hard borders at the left and right.
+- Avoid a composition that would look broken if extended horizontally.
+- Do not create a white frame.
+- Do not create a fake blank canvas.
+- Do not compress the entire requested design into a small object.
+
+The result must look like a professional advertising design
+created by a human graphic designer.
+
+Generate the best possible artwork.
 `;
 
-    console.log("GENERATE REQUEST:", {
+    console.log("AI DESIGN PRINT GENERATE:", {
       designType,
       width: w,
       height: h,
@@ -211,42 +283,68 @@ Generate the best possible professional advertising artwork.
       outputSize,
     });
 
+    /*
+     * Generation stage.
+     *
+     * We deliberately use a strong standard generation canvas.
+     * Extreme aspect-ratio expansion is handled by edit.js.
+     */
+
     const response = await openai.images.generate({
       model: "gpt-image-2",
       prompt: designPrompt,
       size: outputSize,
-      quality: "medium",
+      quality: "high",
     });
 
     const imageBase64 = response.data?.[0]?.b64_json;
 
     if (!imageBase64) {
-      throw new Error("OpenAI không trả về ảnh.");
+      throw new Error(
+        "OpenAI không trả về dữ liệu ảnh."
+      );
     }
 
-    /*
-     * Kiểm tra kích thước ảnh thực tế bằng Sharp.
-     */
-    const inputBuffer = Buffer.from(imageBase64, "base64");
+    const imageBuffer = Buffer.from(
+      imageBase64,
+      "base64"
+    );
 
-    const metadata = await sharp(inputBuffer).metadata();
+    const metadata = await sharp(imageBuffer).metadata();
 
     const sourceWidth = metadata.width || 0;
     const sourceHeight = metadata.height || 0;
 
-    /*
-     * Tỷ lệ thực tế của ảnh AI
-     */
-    const sourceAspectRatio =
-      sourceHeight > 0
-        ? sourceWidth / sourceHeight
-        : 0;
+    if (!sourceWidth || !sourceHeight) {
+      throw new Error(
+        "Không đọc được kích thước ảnh AI."
+      );
+    }
 
-    console.log("GENERATED IMAGE:", {
+    const sourceAspectRatio =
+      sourceWidth / sourceHeight;
+
+    const ratioDifference =
+      Math.abs(sourceAspectRatio - aspectRatio) /
+      aspectRatio;
+
+    /*
+     * Chúng ta KHÔNG sửa méo ảnh tại đây.
+     *
+     * Nếu tỷ lệ không giống target:
+     * main.jsx sẽ chuyển ảnh sang edit.js
+     * khi đây là tỷ lệ cực rộng/cực cao.
+     */
+
+    console.log("AI DESIGN PRINT GENERATED IMAGE:", {
       sourceWidth,
       sourceHeight,
       sourceAspectRatio,
+      targetWidth: w,
+      targetHeight: h,
       targetAspectRatio: aspectRatio,
+      ratioDifference,
+      layoutType,
     });
 
     return res.status(200).json({
@@ -264,10 +362,22 @@ Generate the best possible professional advertising artwork.
       sourceAspectRatio,
 
       outputSize,
-    });
 
+      requiresAspectProcessing:
+        layoutType === "ULTRA_WIDE" ||
+        layoutType === "WIDE" ||
+        layoutType === "ULTRA_TALL",
+
+      ratioDifference,
+
+      pipeline:
+        "AI generation → aspect-ratio expansion → final artwork",
+    });
   } catch (error) {
-    console.error("GENERATE ERROR:", error);
+    console.error(
+      "AI DESIGN PRINT GENERATE ERROR:",
+      error
+    );
 
     return res.status(500).json({
       error:
@@ -276,3 +386,4 @@ Generate the best possible professional advertising artwork.
     });
   }
 }
+```
