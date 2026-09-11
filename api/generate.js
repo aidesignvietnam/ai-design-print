@@ -4,384 +4,300 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-function json(res, status, data) {
-  return res.status(status).json(data);
-}
-
 function getRatio(width, height) {
-  return Number(width) / Number(height);
+  const w = Number(width);
+  const h = Number(height);
+
+  if (!w || !h || w <= 0 || h <= 0) {
+    throw new Error("Kích thước không hợp lệ.");
+  }
+
+  return w / h;
 }
 
-function getLayout(width, height) {
-  const ratio = getRatio(width, height);
-
-  if (ratio >= 4.5) {
-    return "ULTRA_WIDE";
-  }
-
-  if (ratio >= 2.5) {
-    return "WIDE";
-  }
-
-  if (ratio <= 0.45) {
-    return "ULTRA_TALL";
-  }
-
-  if (ratio <= 0.7) {
-    return "TALL";
-  }
+function classifyLayout(ratio) {
+  if (ratio >= 4.5) return "ULTRA_WIDE";
+  if (ratio >= 2.5) return "WIDE";
+  if (ratio <= 0.45) return "ULTRA_TALL";
+  if (ratio <= 0.7) return "TALL";
 
   return "STANDARD";
 }
 
 /*
- * OpenAI Image API dùng các kích thước ảnh chuẩn.
- *
- * Với các banner cực rộng như:
- * 400 x 70 cm
- * 500 x 80 cm
- * 600 x 100 cm
- *
- * Không được kéo méo ảnh.
- *
- * Ảnh AI ban đầu sẽ được tạo theo landscape
- * để giữ chất lượng và bố cục chính.
- *
- * Phần xử lý thành tỷ lệ in thực tế sẽ được
- * thực hiện ở bước xử lý ảnh tiếp theo.
+ * GPT-Image-2 cần kích thước pixel hợp lý.
+ * Quan trọng: kích thước này được tính theo TỶ LỆ thật,
+ * không dùng resize fill để ép méo hình.
  */
-function getOutputSize(layout) {
-  if (layout === "ULTRA_TALL") {
-    return "1024x1536";
+function getOutputSize(ratio) {
+  const MAX = 4096;
+  const MIN = 1024;
+
+  let width;
+  let height;
+
+  if (ratio >= 1) {
+    width = MAX;
+    height = Math.round(width / ratio);
+  } else {
+    height = MAX;
+    width = Math.round(height * ratio);
   }
 
-  if (layout === "TALL") {
-    return "1024x1536";
+  /*
+   * Giữ kích thước trong vùng hợp lý.
+   */
+  if (width < MIN) {
+    width = MIN;
+    height = Math.round(width / ratio);
   }
 
-  return "1536x1024";
+  if (height < MIN) {
+    height = MIN;
+    width = Math.round(height * ratio);
+  }
+
+  /*
+   * Làm tròn về bội số 16 để ảnh ổn định hơn.
+   */
+  width = Math.max(16, Math.round(width / 16) * 16);
+  height = Math.max(16, Math.round(height / 16) * 16);
+
+  return `${width}x${height}`;
 }
 
-function buildPrompt({
+function buildLayoutInstruction({
+  designType,
+  style,
   width,
   height,
   unit,
-  designType,
-  style,
-  content,
+  ratio,
   layout,
 }) {
-  const ratio = getRatio(width, height);
-
-  const sizeText = `${width} ${unit} × ${height} ${unit}`;
+  const physicalSize = `${width} × ${height} ${unit}`;
 
   let layoutInstruction = "";
 
   if (layout === "ULTRA_WIDE") {
     layoutInstruction = `
-ULTRA-WIDE LARGE FORMAT:
+ĐÂY LÀ THIẾT KẾ PANORAMA CỰC RỘNG.
 
-The requested physical size is:
-${sizeText}
+Tỷ lệ mục tiêu là ${ratio.toFixed(4)}:1.
 
-The requested aspect ratio is:
-${ratio.toFixed(3)} : 1
+Hãy thiết kế một BỐ CỤC QUẢNG CÁO DUY NHẤT, LIÊN TỤC trên toàn bộ chiều ngang.
 
-This is a very wide advertising production.
+Không được thiết kế như ba poster ghép lại.
+Không được chia thành ba panel.
+Không được lặp lại cùng một nhân vật hoặc sản phẩm ở nhiều vị trí.
+Không được kéo giãn nhân vật, sản phẩm, logo hoặc vật thể.
 
-IMPORTANT:
-The final design concept must be suitable for expansion
-into the requested panoramic format.
+Phân bổ hình ảnh, nội dung và trang trí cân bằng từ trái sang phải.
 
-Create ONE continuous advertising scene.
+Không để phần giữa quá nặng trong khi hai bên trống.
+Không để hai đầu thiết kế bị bỏ trống vô lý.
 
-Do NOT create:
-- three panels
-- three separate images
-- repeated sections
-- duplicated people
-- duplicated products
-- duplicated logos
-- duplicated typography
-- mirrored subjects
-- tiled backgrounds
-- collage layouts
-- mockup frames
+Các chi tiết nền phải liên tục và hòa vào cùng một không gian.
+Nếu cần thêm diện tích, hãy mở rộng KHÔNG GIAN VÀ NỀN một cách tự nhiên.
 
-The main subject must appear ONLY ONCE.
-
-Keep the main subject and important advertising information
-together as ONE coherent composition.
-
-Use natural surrounding background space that can visually
-continue toward the left and right sides.
-
-Suitable surrounding elements include:
-- environment
-- architecture
-- soft gradients
-- lighting
-- decorative shapes
-- textures
-- atmospheric effects
-- natural scenery
-- subtle depth
-
-The composition must look like ONE professionally designed
-large-format advertising banner.
-
-Do not make the artwork look like several pictures joined together.
-
-Do not leave large accidental white spaces.
-
-Do not stretch people.
-
-Do not stretch products.
-
-Do not distort logos.
-
-Do not distort important objects.
-
-Do not place the design inside a frame.
-
-Generate the FLAT ADVERTISING ARTWORK itself.
+Ưu tiên:
+- bố cục ngang chuyên nghiệp
+- chiều sâu
+- khoảng thở
+- cân bằng thị giác
+- điểm nhấn rõ ràng
+- nền liên tục
+- các thành phần hòa vào cùng một thiết kế
 `;
-
   } else if (layout === "WIDE") {
     layoutInstruction = `
-WIDE ADVERTISING FORMAT:
+ĐÂY LÀ THIẾT KẾ NGANG RỘNG.
 
-Create ONE continuous horizontal advertising composition.
+Tỷ lệ mục tiêu là ${ratio.toFixed(4)}:1.
 
-Keep the main subject visible only ONCE.
+Bố cục phải trải đều theo chiều ngang.
+Không dồn toàn bộ nội dung vào trung tâm.
+Hai bên phải có các yếu tố hỗ trợ phù hợp nhưng không được gây rối.
 
-Do not duplicate:
-- people
-- products
-- logos
-- typography
-
-Use natural horizontal background space around the main subject.
-
-The composition should feel like one professional advertising banner.
+Tạo một không gian thiết kế liên tục, cân bằng và chuyên nghiệp.
+Không nhân đôi đối tượng.
+Không chia thành các panel riêng biệt.
 `;
-
-  } else if (layout === "ULTRA_TALL") {
+  } else if (layout === "TALL" || layout === "ULTRA_TALL") {
     layoutInstruction = `
-ULTRA-TALL LARGE FORMAT:
+ĐÂY LÀ THIẾT KẾ DỌC.
 
-The requested physical size is:
-${sizeText}
+Tỷ lệ mục tiêu là ${ratio.toFixed(4)}:1.
 
-The requested aspect ratio is:
-${ratio.toFixed(3)} : 1
+Bố cục phải tận dụng chiều cao.
+Các thành phần được sắp xếp theo chiều dọc có thứ bậc rõ ràng.
 
-Create ONE continuous vertical advertising composition.
-
-The main subject must appear ONLY ONCE.
-
-Do not duplicate:
-- people
-- products
-- logos
-- typography
-
-Use compatible background, lighting and decorative elements
-above and below the main subject.
-
-Do not create repeated panels.
-
-Do not create a collage.
+Không kéo giãn người, sản phẩm hoặc vật thể.
+Không nhân đôi đối tượng.
+Không để khoảng trống chết quá lớn.
 `;
-
-  } else if (layout === "TALL") {
-    layoutInstruction = `
-VERTICAL ADVERTISING FORMAT:
-
-Create ONE continuous vertical composition.
-
-Keep the main subject visible only ONCE.
-
-Do not duplicate the main subject.
-
-Do not duplicate typography.
-
-Use natural vertical background space.
-`;
-
   } else {
     layoutInstruction = `
-STANDARD ADVERTISING FORMAT:
+ĐÂY LÀ THIẾT KẾ KHỔ TIÊU CHUẨN.
 
-Create one balanced professional advertising composition.
+Tỷ lệ mục tiêu là ${ratio.toFixed(4)}:1.
 
-Keep the main subject clear and visually dominant.
-
-Do not duplicate the main subject.
+Tạo bố cục cân bằng, chuyên nghiệp và dễ đọc.
+Có phân cấp rõ ràng giữa nội dung chính, nội dung phụ và hình ảnh.
+Không dồn tất cả thành phần vào một điểm.
 `;
   }
 
   return `
-You are a senior professional advertising art director
-specialized in commercial advertising and large-format printing.
+KÍCH THƯỚC THIẾT KẾ:
+${physicalSize}
 
-Create the actual FLAT ADVERTISING ARTWORK.
+TỶ LỆ HÌNH ẢNH MỤC TIÊU:
+${ratio.toFixed(6)}:1
 
-DESIGN TYPE:
-${designType || "Backdrop"}
+LOẠI THIẾT KẾ:
+${designType}
 
-REQUESTED PHYSICAL SIZE:
-${sizeText}
-
-REQUESTED ASPECT RATIO:
-${ratio.toFixed(3)} : 1
-
-VISUAL STYLE:
+PHONG CÁCH:
 ${style || "Hiện đại"}
-
-USER'S DESIGN BRIEF:
-${content || "Thiết kế quảng cáo chuyên nghiệp."}
 
 ${layoutInstruction}
 
-PROFESSIONAL DESIGN REQUIREMENTS:
+QUY TẮC CHUNG:
 
-1. Create a polished commercial advertising design.
+1. Giữ đúng tỷ lệ của mọi người, sản phẩm, logo và vật thể.
+2. Không bóp méo hoặc kéo dài đối tượng.
+3. Không nhân đôi đối tượng.
+4. Không tạo bố cục triptych.
+5. Không tạo ba khu vực như ba ảnh ghép.
+6. Tạo một background liên tục.
+7. Nội dung phải có khoảng thở.
+8. Phân bổ thị giác cân bằng toàn bộ khổ.
+9. Nội dung quan trọng nằm trong vùng an toàn, không sát mép.
+10. Hình ảnh và nền phải hòa vào cùng một không gian.
+11. Không tạo khoảng trống vô nghĩa.
+12. Không làm mất cân bằng trái/phải.
+13. Không làm mất cân bằng trên/dưới.
+14. Thiết kế phải có cảm giác là một sản phẩm quảng cáo chuyên nghiệp để in khổ lớn.
+`;
+}
 
-2. Establish a strong visual hierarchy.
+function buildPrompt({
+  designType,
+  width,
+  height,
+  unit,
+  prompt,
+  style,
+  ratio,
+  layout,
+}) {
+  const layoutInstruction = buildLayoutInstruction({
+    designType,
+    style,
+    width,
+    height,
+    unit,
+    ratio,
+    layout,
+  });
 
-3. Make the main message easy to read.
+  return `
+Bạn là một ART DIRECTOR chuyên thiết kế quảng cáo khổ lớn,
+backdrop, biển quảng cáo, banner, poster, standee và các sản phẩm in ấn chuyên nghiệp.
 
-4. Keep the main visual subject prominent.
+NHIỆM VỤ:
 
-5. Use professional typography hierarchy.
+Tạo một thiết kế hoàn chỉnh dựa trên yêu cầu của người dùng.
 
-6. Maintain balanced spacing.
+YÊU CẦU CỦA NGƯỜI DÙNG:
+${prompt || "Thiết kế quảng cáo chuyên nghiệp, bố cục đẹp và cân bằng."}
 
-7. Use high-quality visual composition.
+${layoutInstruction}
 
-8. Make the design appropriate for large-format printing.
+ƯU TIÊN THIẾT KẾ:
 
-9. Keep the requested visual style consistent.
+- Bố cục đẹp ngay từ đầu.
+- Nội dung chính dễ nhìn.
+- Tiêu đề có thứ bậc rõ ràng.
+- Hình ảnh và chữ có khoảng thở.
+- Các thành phần được phân bố hợp lý trên toàn bộ nền.
+- Nền phải hỗ trợ nội dung thay vì cạnh tranh với nội dung.
+- Màu sắc hài hòa.
+- Ánh sáng và chiều sâu tự nhiên.
+- Phù hợp với in ấn quảng cáo khổ lớn.
 
-10. Avoid unnecessary objects.
+ĐẶC BIỆT:
 
-11. Do not add random slogans.
+Nếu thiết kế rất rộng, hãy suy nghĩ như một backdrop thực tế
+được thiết kế cho một sân khấu hoặc không gian quảng cáo dài.
 
-12. Do not add unrelated text.
+Không cố nhét một poster thông thường vào một khổ panorama.
 
-13. Do not add watermarks.
+Không kéo giãn một thiết kế nhỏ thành một thiết kế dài.
 
-14. Do not show a computer screen.
+Hãy tạo bố cục phù hợp với tỷ lệ ngay từ đầu.
 
-15. Do not show a wall mockup.
+KẾT QUẢ MONG MUỐN:
 
-16. Do not show a billboard mockup.
+Một thiết kế quảng cáo duy nhất,
+liên tục,
+cân bằng,
+chuyên nghiệp,
+phù hợp để in khổ lớn.
 
-17. Do not put the artwork inside a physical frame.
-
-18. Generate the actual flat artwork.
-
-TEXT RULES:
-
-The user's supplied content is authoritative.
-
-Use the requested wording.
-
-Do not invent unrelated wording.
-
-Do not add fake company names.
-
-Do not add fake phone numbers.
-
-Do not add fake addresses.
-
-Keep important text readable.
-
-LARGE FORMAT RULE:
-
-The physical dimensions supplied by the user are authoritative.
-
-Do not redesign a very wide banner as a normal poster.
-
-For extremely wide formats, think in terms of a professional
-panoramic advertising environment.
-
-The central subject must remain coherent.
-
-The background should contain natural visual continuation
-space so that the artwork can later be expanded horizontally
-without changing or duplicating the main subject.
-
-IMPORTANT:
-
-This is not a mockup.
-
-This is not a presentation.
-
-This is not three separate designs.
-
-This is ONE finished advertising artwork.
+Không có watermark.
+Không có mockup.
+Không có khung điện thoại.
+Không có giao diện phần mềm.
+Chỉ tạo chính thiết kế được yêu cầu.
 `;
 }
 
 export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    return res.status(405).json({
+      error: "Method not allowed",
+    });
+  }
+
   try {
-    if (req.method !== "POST") {
-      return json(res, 405, {
-        error: "Method not allowed",
-      });
-    }
-
-    const body = req.body || {};
-
-    const width = Number(body.width);
-    const height = Number(body.height);
-
-    const unit = body.unit || "cm";
-
-    const designType =
-      body.designType || "Backdrop";
-
-    const style =
-      body.style || "Hiện đại";
-
-    const content =
-      body.content ||
-      body.prompt ||
-      "Thiết kế quảng cáo chuyên nghiệp.";
-
-    if (
-      !Number.isFinite(width) ||
-      !Number.isFinite(height) ||
-      width <= 0 ||
-      height <= 0
-    ) {
-      return json(res, 400, {
-        error:
-          "Chiều rộng và chiều cao phải lớn hơn 0.",
-      });
-    }
-
-    const ratio = getRatio(width, height);
-
-    const layout = getLayout(width, height);
-
-    const outputSize = getOutputSize(layout);
-
-    const designPrompt = buildPrompt({
+    const {
+      designType = "Backdrop",
       width,
       height,
-      unit,
+      unit = "cm",
+      prompt = "",
+      style = "Hiện đại",
+    } = req.body || {};
+
+    const w = Number(width);
+    const h = Number(height);
+
+    if (!w || !h || w <= 0 || h <= 0) {
+      return res.status(400).json({
+        error: "Vui lòng nhập kích thước hợp lệ.",
+      });
+    }
+
+    const ratio = getRatio(w, h);
+    const layout = classifyLayout(ratio);
+    const outputSize = getOutputSize(ratio);
+
+    const designPrompt = buildPrompt({
       designType,
+      width: w,
+      height: h,
+      unit,
+      prompt,
       style,
-      content,
+      ratio,
       layout,
     });
 
-    console.log("AI DESIGN PRINT REQUEST:", {
-      width,
-      height,
+    console.log("AI DESIGN PRINT V2 REQUEST:", {
+      width: w,
+      height: h,
       unit,
       ratio,
       layout,
@@ -397,55 +313,28 @@ export default async function handler(req, res) {
       quality: "high",
     });
 
-    const image = response?.data?.[0]?.b64_json;
+    const imageBase64 = response?.data?.[0]?.b64_json;
 
-    if (!image) {
-      throw new Error(
-        "OpenAI không trả về ảnh thiết kế."
-      );
+    if (!imageBase64) {
+      throw new Error("AI không trả về hình ảnh.");
     }
 
-    return json(res, 200, {
-      image:
-        "data:image/png;base64," +
-        image,
+    const image = `data:image/png;base64,${imageBase64}`;
 
-      width,
-      height,
+    return res.status(200).json({
+      image,
+      width: w,
+      height: h,
       unit,
-
-      targetRatio: ratio,
-
+      ratio,
       layout,
-
       outputSize,
-
-      designType,
-
-      style,
-
-      /*
-       * Báo cho frontend biết đây là định dạng
-       * cần xử lý tỷ lệ đặc biệt ở bước tiếp theo.
-       */
-      requiresAspectProcessing:
-        layout === "ULTRA_WIDE" ||
-        layout === "ULTRA_TALL",
-
-      /*
-       * Phiên bản prompt mới.
-       */
-      promptVersion:
-        "AI-DESIGN-PRINT-PANORAMIC-V3",
+      promptVersion: "AI-DESIGN-PRINT-V2-LAYOUT",
     });
-
   } catch (error) {
-    console.error(
-      "GENERATE ERROR:",
-      error
-    );
+    console.error("AI DESIGN PRINT GENERATE ERROR:", error);
 
-    return json(res, 500, {
+    return res.status(500).json({
       error:
         error?.message ||
         "Không thể tạo thiết kế AI.",
