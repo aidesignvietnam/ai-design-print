@@ -811,7 +811,7 @@ const handleDownloadUpscale = () => {
             designType,
             width: w,
             height: h,
-            unit,
+            unit: selectedUnit,
             prompt,
             style,
             aspectRatio,
