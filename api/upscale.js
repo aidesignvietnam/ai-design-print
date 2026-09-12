@@ -23,11 +23,16 @@ export default async function handler(req, res) {
     let imageBuffer;
 
     if (image.startsWith("data:")) {
-      const base64Data = image.split(",")[1];
+      const commaIndex = image.indexOf(",");
 
-      if (!base64Data) {
-        throw new Error("Dữ liệu ảnh không hợp lệ.");
+      if (commaIndex === -1) {
+        throw new Error(
+          "Dữ liệu ảnh không hợp lệ."
+        );
       }
+
+      const base64Data =
+        image.slice(commaIndex + 1);
 
       imageBuffer = Buffer.from(
         base64Data,
@@ -37,6 +42,12 @@ export default async function handler(req, res) {
       imageBuffer = Buffer.from(
         image,
         "base64"
+      );
+    }
+
+    if (!imageBuffer.length) {
+      throw new Error(
+        "Không thể đọc dữ liệu ảnh."
       );
     }
 
@@ -69,8 +80,8 @@ export default async function handler(req, res) {
     }
 
     /*
-     * Giới hạn kích thước để tránh
-     * server bị quá tải.
+     * Giới hạn tổng số pixel để bảo vệ
+     * server khi xử lý ảnh rất lớn.
      */
     const MAX_PIXELS =
       mode === "print"
@@ -107,8 +118,7 @@ export default async function handler(req, res) {
     }
 
     /*
-     * Lanczos giữ chi tiết tốt khi
-     * phóng ảnh.
+     * Kích nét bằng Lanczos.
      */
     let processor = sharp(imageBuffer)
       .resize({
@@ -120,8 +130,8 @@ export default async function handler(req, res) {
 
     /*
      * PRINT HD:
-     * tăng nhẹ độ tương phản và độ nét.
-     * Không làm quá mạnh để tránh viền giả.
+     * xử lý nhẹ để phù hợp với ảnh
+     * dùng cho in ấn.
      */
     if (mode === "print") {
       processor = processor
@@ -141,6 +151,9 @@ export default async function handler(req, res) {
       });
     }
 
+    /*
+     * Xuất PNG.
+     */
     const outputBuffer =
       await processor
         .png({
@@ -148,21 +161,53 @@ export default async function handler(req, res) {
         })
         .toBuffer();
 
-    return res.status(200).json({
-      image:
-        `data:image/png;base64,${outputBuffer.toString(
-          "base64"
-        )}`,
+    /*
+     * Trả file ảnh trực tiếp thay vì
+     * nhét ảnh Base64 vào JSON.
+     */
+    res.statusCode = 200;
 
-      originalWidth,
-      originalHeight,
+    res.setHeader(
+      "Content-Type",
+      "image/png"
+    );
 
-      outputWidth: targetWidth,
-      outputHeight: targetHeight,
+    res.setHeader(
+      "Content-Disposition",
+      'attachment; filename="ai-kich-net.png"'
+    );
 
-      scale: multiplier,
-      mode,
-    });
+    res.setHeader(
+      "X-Original-Width",
+      String(originalWidth)
+    );
+
+    res.setHeader(
+      "X-Original-Height",
+      String(originalHeight)
+    );
+
+    res.setHeader(
+      "X-Output-Width",
+      String(targetWidth)
+    );
+
+    res.setHeader(
+      "X-Output-Height",
+      String(targetHeight)
+    );
+
+    res.setHeader(
+      "X-Scale",
+      String(multiplier)
+    );
+
+    res.setHeader(
+      "X-Mode",
+      mode
+    );
+
+    return res.end(outputBuffer);
   } catch (error) {
     console.error(
       "UPSCALE ERROR:",
