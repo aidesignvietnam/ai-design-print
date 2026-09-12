@@ -29,14 +29,10 @@ function App() {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
   const [processingStep, setProcessingStep] = useState("");
-
-  const [downloadOpen, setDownloadOpen] = useState(false);
-
-  const downloadMenuRef = useRef(null);
+  
 const [downloadOpen, setDownloadOpen] = useState(false);
 
 const downloadMenuRef = useRef(null);
-
 
 /* =========================================================
    AI UPSCALE
@@ -63,14 +59,6 @@ const [upscaleInfo, setUpscaleInfo] =
 const [upscaleError, setUpscaleError] =
   useState("");
   
-const designTypes = [
-  "Backdrop",
-  "Biển quảng cáo",
-  "Banner",
-  "Poster",
-  "Standee",
-  "Tờ rơi",
-];
   const designTypes = [
     "Backdrop",
     "Biển quảng cáo",
