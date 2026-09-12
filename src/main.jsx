@@ -612,15 +612,73 @@ const handleDownloadUpscale = () => {
   /* =========================================================
      CREATE DESIGN
   ========================================================= */
+  const parseSizeFromPrompt = (text) => {
+    if (!text) {
+      return null;
+    }
 
+    const match = text.match(
+      /(?:kích\s*thước|size)?\s*(\d+(?:[.,]\d+)?)\s*(m|cm|mm)\s*[×xX*]\s*(\d+(?:[.,]\d+)?)\s*(m|cm|mm)/i
+    );
+
+    if (!match) {
+      return null;
+    }
+
+    const value1 = Number(
+      match[1].replace(",", ".")
+    );
+
+    const unit1 = match[2].toLowerCase();
+
+    const value2 = Number(
+      match[3].replace(",", ".")
+    );
+
+    const unit2 = match[4].toLowerCase();
+
+    if (
+      !Number.isFinite(value1) ||
+      !Number.isFinite(value2)
+    ) {
+      return null;
+    }
+
+    // Nếu hai kích thước dùng cùng đơn vị
+    if (unit1 === unit2) {
+      return {
+        width: value1,
+        height: value2,
+        unit: unit1,
+      };
+    }
+
+    // Nếu khác đơn vị, quy đổi về mm
+    const toMM = (value, unit) => {
+      if (unit === "m") return value * 1000;
+      if (unit === "cm") return value * 10;
+      return value;
+    };
+
+    const widthMM = toMM(value1, unit1);
+    const heightMM = toMM(value2, unit2);
+
+    return {
+      width: widthMM,
+      height: heightMM,
+      unit: "mm",
+    };
+  };
   const handleCreate = async () => {
     if (!toolOn || generating) {
       return;
     }
 
-    const w = Number(width);
-    const h = Number(height);
+    const parsedSize = parseSizeFromPrompt(prompt);
 
+    const w = parsedSize?.width ?? Number(width);
+    const h = parsedSize?.height ?? Number(height);
+    const selectedUnit = parsedSize?.unit ?? unit;
     if (
       !Number.isFinite(w) ||
       !Number.isFinite(h) ||
@@ -685,7 +743,7 @@ const handleDownloadUpscale = () => {
             designType,
             width: w,
             height: h,
-            unit,
+            unit: selectedUnit,
             prompt,
             style,
             aspectRatio,
@@ -1506,7 +1564,7 @@ const handleDownloadSVG = () => {
               }}
             >
               {generating ? (
-                <div className="empty-canvas">
+                 <div className="empty-canvas">
                   <div className="canvas-icon">
                     ✦
                   </div>
@@ -1610,34 +1668,52 @@ const handleDownloadSVG = () => {
                   </div>
                 </div>
               ) : uploadedImage ? (
-                <div className="generated-result">
-                  <img
-                    src={uploadedImage}
-                    className="canvas-image generated-canvas-image"
-                    alt="Reference design"
-                  />
-                </div>
-              ) : (
-                <div className="empty-canvas">
-                  <div className="canvas-icon">
-                    ✦
-                  </div>
+  <div className="generated-result">
+    <img
+      src={uploadedImage}
+      className="canvas-image generated-canvas-image"
+      alt="Reference design"
+    />
+  </div>
+) : (
+  <div className="center-design-brief">
+    <div className="center-brief-icon">
+      ✦
+    </div>
 
-                  <div className="canvas-empty-title">
-                    YOUR DESIGN
-                  </div>
+    <div className="center-brief-title">
+      DESIGN BRIEF
+    </div>
 
-                  <div className="canvas-empty-text">
-                    AI generated artwork will appear here
-                  </div>
+    <div className="center-brief-subtitle">
+      Mô tả thiết kế bạn muốn tạo
+    </div>
 
-                  <div className="canvas-size">
-                    {width || "300"} ×{" "}
-                    {height || "270"}{" "}
-                    {unit}
-                  </div>
-                </div>
-              )}
+    <textarea
+      className="center-brief-input"
+      placeholder="Ví dụ: Thiết kế backdrop khai giảng trường mầm non, kích thước 3m × 2,7m, màu sắc vui tươi, có hình các em nhỏ..."
+      value={prompt}
+      onChange={(event) =>
+        setPrompt(event.target.value)
+      }
+      disabled={!toolOn}
+    />
+
+    <div className="center-brief-hint">
+      AI sẽ tự đọc nội dung, kích thước và phong cách từ yêu cầu của bạn
+    </div>
+
+    <button
+      className="center-brief-generate"
+      onClick={handleCreate}
+      disabled={!toolOn || generating}
+    >
+      {generating
+        ? "ĐANG TẠO..."
+        : "GENERATE DESIGN"}
+    </button>
+  </div>
+)}
             </div>
           </div>
 

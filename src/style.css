@@ -1192,3 +1192,89 @@ select:disabled {
 
    Các lỗi này đã được loại bỏ trong phiên bản mới.
 ========================================================= */
+/* ===== CENTER DESIGN BRIEF ===== */
+
+.center-design-brief {
+  width: min(88%, 720px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: auto;
+  padding: 30px;
+  box-sizing: border-box;
+}
+
+.center-brief-icon {
+  font-size: 28px;
+  color: #8b93a3;
+  line-height: 1;
+}
+
+.center-brief-title {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  color: #20242c;
+}
+
+.center-brief-subtitle {
+  font-size: 13px;
+  color: #6d7480;
+  text-align: center;
+}
+
+.center-brief-input {
+  width: 100%;
+  min-height: 150px;
+  box-sizing: border-box;
+  padding: 18px;
+  border: 1px solid #cbd0d8;
+  border-radius: 10px;
+  background: #ffffff;
+  color: #20242c;
+  font-size: 16px;
+  line-height: 1.6;
+  outline: none;
+  resize: none;
+  font-family: inherit;
+}
+
+.center-brief-input:focus {
+  border-color: #8b93a3;
+  box-shadow: 0 0 0 3px rgba(100, 110, 125, 0.08);
+}
+
+.center-brief-input::placeholder {
+  color: #9299a5;
+}
+
+.center-brief-hint {
+  font-size: 12px;
+  color: #7b828e;
+  text-align: center;
+}
+
+.center-brief-generate {
+  border: none;
+  border-radius: 8px;
+  padding: 13px 26px;
+  background: #20242c;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  cursor: pointer;
+  transition: 0.2s ease;
+}
+
+.center-brief-generate:hover {
+  transform: translateY(-1px);
+}
+
+.center-brief-generate:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
