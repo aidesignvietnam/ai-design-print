@@ -1181,23 +1181,49 @@ const handleDownloadSVG = () => {
   setVectorError("");
 
   const vectorOptions = {
-    ltres: 0.5,
-    qtres: 0.5,
-    pathomit: 4,
+    // CORELDRAW OPTIMIZED
+    // Giảm số lượng path/node nhưng vẫn giữ các mảng chính.
+
+    ltres: 1.2,
+    qtres: 1.2,
+
+    // Loại bỏ các vùng vector quá nhỏ
+    pathomit: 12,
+
+    // Lấy màu từ ảnh
     colorsampling: 2,
-    numberofcolors: 32,
-    mincolorratio: 0,
-    colorquantcycles: 3,
+
+    // Giảm số màu để Corel không tạo quá nhiều vector
+    numberofcolors: 16,
+
+    mincolorratio: 0.02,
+    colorquantcycles: 2,
+
+    // Cải thiện các góc và đường thẳng
     rightangleenhance: true,
+
+    // Giữ các lớp màu đơn giản
     layering: 0,
+
+    // Không tạo stroke
     strokewidth: 0,
-    linefilter: false,
-    roundcoords: 2,
+
+    linefilter: true,
+
+    // Giảm số chữ số tọa độ
+    roundcoords: 1,
+
+    // SVG có viewBox chuẩn
     viewbox: true,
+
     desc: false,
+
     lcpr: 0,
     qcpr: 0,
+
+    // Không làm mờ trước khi vector hóa
     blurradius: 0,
+
     blurdelta: 20,
   };
 
@@ -1205,28 +1231,39 @@ const handleDownloadSVG = () => {
     ImageTracer.imageToSVG(
       generatedImage,
       (svgString) => {
-        const blob = new Blob([svgString], {
-          type: "image/svg+xml;charset=utf-8",
-        });
+        const blob = new Blob(
+          [svgString],
+          {
+            type: "image/svg+xml;charset=utf-8",
+          }
+        );
 
         const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
 
         link.href = url;
-        link.download = `ai-design-print-${Date.now()}.svg`;
+        link.download =
+          `ai-design-print-coreldraw-${Date.now()}.svg`;
 
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
 
-        URL.revokeObjectURL(url);
+        setTimeout(() => {
+          URL.revokeObjectURL(url);
+        }, 1000);
+
         setVectorizing(false);
       },
       vectorOptions
     );
   } catch (error) {
     console.error(error);
-    setVectorError("Không thể vector hóa hình ảnh.");
+
+    setVectorError(
+      "Không thể vector hóa hình ảnh."
+    );
+
     setVectorizing(false);
   }
 };
