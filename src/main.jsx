@@ -1815,11 +1815,18 @@ const handleDownloadSVG = () => {
               </strong>
             </div>
 
-            <textarea
-              className="ai-prompt"
-              placeholder={
-                "Mô tả thiết kế bạn muốn tạo...\n\nVí dụ: Backdrop khai giảng trường mầm non, màu sắc vui tươi, có hình các em nhỏ..."
-              }
+            <textarea 
+  className="ai-prompt"
+  style={{
+    minHeight: "180px",
+    fontSize: "15px",
+    lineHeight: "1.6",
+    padding: "16px",
+    resize: "vertical",
+  }}
+             placeholder={
+  "Nhập yêu cầu thiết kế tại đây...\n\nVí dụ: Thiết kế backdrop khai giảng trường mầm non, kích thước 3m × 2,7m, màu sắc vui tươi, có hình các em nhỏ, phong cách hiện đại và chuyên nghiệp..."
+}
               value={prompt}
               onChange={(event) =>
                 setPrompt(
