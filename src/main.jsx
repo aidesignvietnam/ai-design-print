@@ -1663,10 +1663,9 @@ function App() {
                 "design-canvas " +
                 canvasRatioClass
               }
-              style={{
-                aspectRatio:
-                  `${numericWidth} / ${numericHeight}`,
-              }}
+           style={{
+           aspectRatio: numericWidth / numericHeight,
+           }}
             >
 
               {generating ? (
