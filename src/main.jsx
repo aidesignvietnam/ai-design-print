@@ -1,3 +1,4 @@
+```jsx
 import React, {
   useEffect,
   useRef,
@@ -20,6 +21,18 @@ function App() {
   const [style, setStyle] = useState("Hiện đại");
 
   const [uploadedImage, setUploadedImage] = useState(null);
+
+  /*
+   * ẢNH DÙNG RIÊNG CHO API
+   *
+   * uploadedImage:
+   *   ảnh gốc để hiển thị trên giao diện
+   *
+   * uploadedImageForAPI:
+   *   ảnh đã giảm dung lượng để gửi server
+   */
+  const [uploadedImageForAPI, setUploadedImageForAPI] =
+    useState(null);
 
   const [generatedImage, setGeneratedImage] = useState(null);
   const [designPlan, setDesignPlan] = useState(null);
@@ -139,6 +152,216 @@ function App() {
 
   /*
    * =========================================================
+   * NÉN ẢNH TRƯỚC KHI GỬI API
+   *
+   * QUAN TRỌNG:
+   *
+   * Hàm này KHÔNG thay đổi ảnh gốc đang hiển thị.
+   *
+   * Nó chỉ tạo một bản nhẹ hơn để gửi lên:
+   * /api/plan
+   * /api/generate
+   * /api/edit
+   *
+   * Mục tiêu:
+   * tránh lỗi Vercel:
+   * FUNCTION_PAYLOAD_TOO_LARGE
+   * Request Entity Too Large
+   * =========================================================
+   */
+
+  const compressImageForAPI = (
+    dataURL,
+    maxDimension = 1600
+  ) => {
+    return new Promise(
+      (resolve, reject) => {
+        if (!dataURL) {
+          resolve(null);
+          return;
+        }
+
+        /*
+         * Nếu không phải Data URL thì giữ nguyên.
+         * Trường hợp này dành cho URL ảnh từ server.
+         */
+        if (
+          typeof dataURL !== "string" ||
+          !dataURL.startsWith("data:image/")
+        ) {
+          resolve(dataURL);
+          return;
+        }
+
+        const image =
+          new Image();
+
+        image.onload = () => {
+          try {
+            const originalWidth =
+              image.naturalWidth ||
+              image.width;
+
+            const originalHeight =
+              image.naturalHeight ||
+              image.height;
+
+            if (
+              !originalWidth ||
+              !originalHeight
+            ) {
+              resolve(dataURL);
+              return;
+            }
+
+            /*
+             * Tính kích thước mới nhưng giữ nguyên
+             * tỷ lệ ảnh.
+             */
+            const scale =
+              Math.min(
+                1,
+                maxDimension /
+                  Math.max(
+                    originalWidth,
+                    originalHeight
+                  )
+              );
+
+            const targetWidth =
+              Math.max(
+                1,
+                Math.round(
+                  originalWidth *
+                    scale
+                )
+              );
+
+            const targetHeight =
+              Math.max(
+                1,
+                Math.round(
+                  originalHeight *
+                    scale
+                )
+              );
+
+            const canvas =
+              document.createElement(
+                "canvas"
+              );
+
+            canvas.width =
+              targetWidth;
+
+            canvas.height =
+              targetHeight;
+
+            const context =
+              canvas.getContext(
+                "2d"
+              );
+
+            if (!context) {
+              resolve(dataURL);
+              return;
+            }
+
+            /*
+             * Chất lượng render tốt nhưng dung lượng
+             * thấp hơn rất nhiều so với PNG gốc.
+             */
+            context.drawImage(
+              image,
+              0,
+              0,
+              targetWidth,
+              targetHeight
+            );
+
+            /*
+             * Bắt đầu với JPEG 0.78.
+             */
+            let quality = 0.78;
+
+            let compressed =
+              canvas.toDataURL(
+                "image/jpeg",
+                quality
+              );
+
+            /*
+             * Nếu vẫn quá lớn, tiếp tục giảm chất lượng.
+             *
+             * Giới hạn khoảng 2.5 MB cho chuỗi Base64.
+             * Điều này giúp giảm đáng kể nguy cơ payload
+             * vượt giới hạn serverless.
+             */
+            const maxDataURLLength =
+              2.5 * 1024 * 1024;
+
+            while (
+              compressed.length >
+                maxDataURLLength &&
+              quality > 0.45
+            ) {
+              quality -= 0.08;
+
+              compressed =
+                canvas.toDataURL(
+                  "image/jpeg",
+                  quality
+                );
+            }
+
+            console.log(
+              "IMAGE COMPRESSED FOR API:",
+              {
+                originalWidth,
+                originalHeight,
+                targetWidth,
+                targetHeight,
+                quality,
+                originalSize:
+                  dataURL.length,
+                compressedSize:
+                  compressed.length,
+              }
+            );
+
+            resolve(
+              compressed
+            );
+          } catch (err) {
+            console.error(
+              "IMAGE COMPRESSION ERROR:",
+              err
+            );
+
+            /*
+             * Nếu trình duyệt không thể nén,
+             * vẫn trả ảnh gốc để không làm hỏng workflow.
+             */
+            resolve(dataURL);
+          }
+        };
+
+        image.onerror = () => {
+          console.warn(
+            "Không thể load ảnh để nén. Sử dụng ảnh gốc."
+          );
+
+          resolve(dataURL);
+        };
+
+        image.src =
+          dataURL;
+      }
+    );
+  };
+
+  /*
+   * =========================================================
    * UPLOAD IMAGE
    * =========================================================
    */
@@ -172,8 +395,28 @@ function App() {
           file
         );
 
+      /*
+       * GIỮ ẢNH GỐC CHO GIAO DIỆN
+       */
       setUploadedImage(
         imageData
+      );
+
+      /*
+       * TẠO BẢN NHẸ RIÊNG CHO API
+       */
+      setProcessingStep(
+        "Đang tối ưu ảnh tham khảo..."
+      );
+
+      const apiImage =
+        await compressImageForAPI(
+          imageData,
+          1600
+        );
+
+      setUploadedImageForAPI(
+        apiImage
       );
 
       setGeneratedImage(null);
@@ -338,6 +581,20 @@ function App() {
       try {
         /*
          * =====================================================
+         * ẢNH THAM KHẢO DÙNG CHO API
+         *
+         * Ưu tiên bản đã nén.
+         * Không gửi ảnh gốc lớn lên server.
+         * =====================================================
+         */
+
+        const referenceImageForAPI =
+          uploadedImageForAPI ||
+          uploadedImage ||
+          null;
+
+        /*
+         * =====================================================
          * STEP 1 — AI ART DIRECTOR
          * =====================================================
          */
@@ -363,8 +620,7 @@ function App() {
                 aspectRatio,
 
                 uploadedImage:
-                  uploadedImage ||
-                  null,
+                  referenceImageForAPI,
               }),
             }
           );
@@ -467,8 +723,7 @@ function App() {
                   currentDesignPlan,
 
                 uploadedImage:
-                  uploadedImage ||
-                  null,
+                  referenceImageForAPI,
               }),
             }
           );
@@ -538,6 +793,21 @@ function App() {
               "..."
           );
 
+          /*
+           * QUAN TRỌNG:
+           *
+           * finalImage có thể là Base64 PNG rất lớn.
+           *
+           * Chúng ta KHÔNG thay đổi finalImage.
+           *
+           * Chỉ tạo một bản nén để gửi /api/edit.
+           */
+          const editImageForAPI =
+            await compressImageForAPI(
+              finalImage,
+              1600
+            );
+
           const editResponse =
             await fetch(
               "/api/edit",
@@ -551,7 +821,7 @@ function App() {
 
                 body: JSON.stringify({
                   image:
-                    finalImage,
+                    editImageForAPI,
 
                   editPrompt:
                     "Mở rộng thiết kế theo đúng tỷ lệ kích thước yêu cầu và theo Design Plan. Giữ nguyên hierarchy, chủ thể chính, phong cách, màu sắc và nội dung quan trọng. Không nhân đôi người, sản phẩm, logo hoặc chữ. Không tạo bố cục 3 panel. Không biến thiết kế thành một cụm nhỏ ở giữa. Chỉ mở rộng nền, môi trường và các visual phụ một cách tự nhiên để tận dụng toàn bộ canvas.",
@@ -574,8 +844,7 @@ function App() {
                     currentDesignPlan,
 
                   uploadedImage:
-                    uploadedImage ||
-                    null,
+                    referenceImageForAPI,
                 }),
               }
             );
@@ -630,6 +899,9 @@ function App() {
         /*
          * =====================================================
          * HIỂN THỊ KẾT QUẢ
+         *
+         * GIỮ NGUYÊN ẢNH AI TRẢ VỀ.
+         * Không dùng ảnh nén ở đây.
          * =====================================================
          */
 
@@ -703,10 +975,41 @@ function App() {
       setDownloadOpen(false);
 
       setProcessingStep(
-        "AI đang chỉnh sửa thiết kế..."
+        "AI đang tối ưu ảnh để chỉnh sửa..."
       );
 
       try {
+        /*
+         * =====================================================
+         * QUAN TRỌNG NHẤT:
+         *
+         * generatedImage có thể rất lớn.
+         *
+         * Chúng ta nén bản COPY để gửi API.
+         *
+         * generatedImage gốc vẫn được giữ nguyên
+         * trong state để hiển thị / tải xuống.
+         * =====================================================
+         */
+
+        const editImageForAPI =
+          await compressImageForAPI(
+            generatedImage,
+            1600
+          );
+
+        /*
+         * Ảnh tham khảo cũng dùng bản nhẹ.
+         */
+        const referenceImageForAPI =
+          uploadedImageForAPI ||
+          uploadedImage ||
+          null;
+
+        setProcessingStep(
+          "AI đang chỉnh sửa thiết kế..."
+        );
+
         const response =
           await fetch(
             "/api/edit",
@@ -719,8 +1022,13 @@ function App() {
               },
 
               body: JSON.stringify({
+                /*
+                 * KHÔNG gửi generatedImage gốc.
+                 *
+                 * Gửi ảnh đã nén.
+                 */
                 image:
-                  generatedImage,
+                  editImageForAPI,
 
                 editPrompt,
 
@@ -739,8 +1047,7 @@ function App() {
                 style,
 
                 uploadedImage:
-                  uploadedImage ||
-                  null,
+                  referenceImageForAPI,
 
                 designPlan:
                   designPlan ||
@@ -792,6 +1099,12 @@ function App() {
           );
         }
 
+        /*
+         * API trả về ảnh mới.
+         *
+         * Giữ nguyên ảnh trả về để hiển thị
+         * và tải xuống.
+         */
         setGeneratedImage(
           data.image
         );
@@ -1006,9 +1319,6 @@ function App() {
   /*
    * =========================================================
    * CANVAS RATIO
-   *
-   * Quan trọng:
-   * Không để preview bị ép thành khung cao cố định.
    * =========================================================
    */
 
@@ -1348,10 +1658,6 @@ function App() {
 
             </div>
 
-            {/* =================================================
-                DESIGN CANVAS
-            ================================================= */}
-
             <div
               className={
                 "design-canvas " +
@@ -1362,10 +1668,6 @@ function App() {
                   `${numericWidth} / ${numericHeight}`,
               }}
             >
-
-              {/* =================================================
-                  GENERATING
-              ================================================= */}
 
               {generating ? (
 
@@ -1403,10 +1705,6 @@ function App() {
 
               ) : error ? (
 
-                /* =================================================
-                   ERROR
-                ================================================= */
-
                 <div className="empty-canvas">
 
                   <div className="canvas-icon">
@@ -1425,10 +1723,6 @@ function App() {
 
               ) : generatedImage ? (
 
-                /* =================================================
-                   GENERATED IMAGE
-                ================================================= */
-
                 <div
                   className="generated-result"
                   ref={
@@ -1443,10 +1737,6 @@ function App() {
                     className="canvas-image generated-canvas-image"
                     alt="AI generated design"
                   />
-
-                  {/* =================================================
-                      DOWNLOAD — GÓC TRÊN BÊN PHẢI
-                  ================================================= */}
 
                   <div
                     className={
@@ -1517,10 +1807,6 @@ function App() {
 
               ) : uploadedImage ? (
 
-                /* =================================================
-                   REFERENCE IMAGE
-                ================================================= */
-
                 <div className="generated-result">
 
                   <img
@@ -1534,10 +1820,6 @@ function App() {
                 </div>
 
               ) : (
-
-                /* =================================================
-                   EMPTY CANVAS
-                ================================================= */
 
                 <div className="empty-canvas">
 
@@ -1716,10 +1998,6 @@ function App() {
 
           </div>
 
-          {/* =================================================
-              CANVAS SIZE
-          ================================================= */}
-
           <section className="property-section">
 
             <div className="property-heading">
@@ -1818,10 +2096,6 @@ function App() {
 
           </section>
 
-          {/* =================================================
-              DESIGN BRIEF
-          ================================================= */}
-
           <section className="property-section">
 
             <div className="property-heading">
@@ -1855,10 +2129,6 @@ function App() {
             />
 
           </section>
-
-          {/* =================================================
-              VISUAL STYLE
-          ================================================= */}
 
           <section className="property-section">
 
@@ -1908,10 +2178,6 @@ function App() {
 
           </section>
 
-          {/* =================================================
-              GENERATE BUTTON
-          ================================================= */}
-
           <button
             className="generate-button"
             onClick={
@@ -1948,10 +2214,6 @@ function App() {
             </span>
 
           </button>
-
-          {/* =================================================
-              EXPORT
-          ================================================= */}
 
           <section className="export-section">
 
@@ -2054,10 +2316,6 @@ function App() {
 
       </div>
 
-      {/* =================================================
-          FOOTER
-      ================================================= */}
-
       <footer className="footer">
 
         <span>
@@ -2078,12 +2336,6 @@ function App() {
   );
 }
 
-/*
- * =========================================================
- * REACT ROOT
- * =========================================================
- */
-
 ReactDOM.createRoot(
   document.getElementById(
     "root"
@@ -2093,3 +2345,4 @@ ReactDOM.createRoot(
     <App />
   </React.StrictMode>
 );
+```
