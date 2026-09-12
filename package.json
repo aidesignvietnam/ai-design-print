@@ -9,11 +9,12 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "imagetracerjs": "^1.2.6",
+    "jspdf": "^4.0.0",
+    "openai": "^5.19.1",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
-    "openai": "^5.19.1",
-   "jspdf": "^4.0.0",
-"sharp": "^0.34.3"
+    "sharp": "^0.34.3"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.4",

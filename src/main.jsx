@@ -3,6 +3,7 @@ import React, {
   useRef,
   useState,
 } from "react";
+import ImageTracer from "imagetracerjs";
 import { createRoot } from "react-dom/client";
 import { jsPDF } from "jspdf";
 import "./style.css";
@@ -59,6 +60,9 @@ const [upscaleInfo, setUpscaleInfo] =
 const [upscaleError, setUpscaleError] =
   useState("");
   
+const [vectorizing, setVectorizing] = useState(false);
+const [vectorError, setVectorError] = useState("");
+
   const designTypes = [
     "Backdrop",
     "Biển quảng cáo",
@@ -1167,7 +1171,65 @@ const handleDownloadUpscale = () => {
       );
     }
   };
+const handleDownloadSVG = () => {
+  if (!generatedImage) {
+    alert("Chưa có thiết kế để xuất SVG.");
+    return;
+  }
 
+  setVectorizing(true);
+  setVectorError("");
+
+  const vectorOptions = {
+    ltres: 0.5,
+    qtres: 0.5,
+    pathomit: 4,
+    colorsampling: 2,
+    numberofcolors: 32,
+    mincolorratio: 0,
+    colorquantcycles: 3,
+    rightangleenhance: true,
+    layering: 0,
+    strokewidth: 0,
+    linefilter: false,
+    roundcoords: 2,
+    viewbox: true,
+    desc: false,
+    lcpr: 0,
+    qcpr: 0,
+    blurradius: 0,
+    blurdelta: 20,
+  };
+
+  try {
+    ImageTracer.imageToSVG(
+      generatedImage,
+      (svgString) => {
+        const blob = new Blob([svgString], {
+          type: "image/svg+xml;charset=utf-8",
+        });
+
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+
+        link.href = url;
+        link.download = `ai-design-print-${Date.now()}.svg`;
+
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+
+        URL.revokeObjectURL(url);
+        setVectorizing(false);
+      },
+      vectorOptions
+    );
+  } catch (error) {
+    console.error(error);
+    setVectorError("Không thể vector hóa hình ảnh.");
+    setVectorizing(false);
+  }
+};
   /* =========================================================
      DOWNLOAD MENU
   ========================================================= */
@@ -1839,15 +1901,17 @@ const handleDownloadUpscale = () => {
                 </small>
               </button>
 
-              <button disabled>
-                <strong>
-                  SVG
-                </strong>
+              <button
+  onClick={handleDownloadSVG}
+>
+  <strong>
+    {vectorizing ? "..." : "SVG"}
+  </strong>
 
-                <small>
-                  VECTOR
-                </small>
-              </button>
+  <small>
+    {vectorizing ? "VECTORING" : "VECTOR"}
+  </small>
+</button>
 
               <button
                 className="cdr-button"
