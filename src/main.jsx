@@ -1320,7 +1320,7 @@ const handleDownloadSVG = () => {
 
           <div>
             <div className="logo-title">
-              AI DESIGN PRINT
+           MINH PHA DESIGN
             </div>
 
             <div className="logo-subtitle">
