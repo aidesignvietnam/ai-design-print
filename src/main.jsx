@@ -33,7 +33,44 @@ function App() {
   const [downloadOpen, setDownloadOpen] = useState(false);
 
   const downloadMenuRef = useRef(null);
+const [downloadOpen, setDownloadOpen] = useState(false);
 
+const downloadMenuRef = useRef(null);
+
+
+/* =========================================================
+   AI UPSCALE
+========================================================= */
+
+const [upscaleImage, setUpscaleImage] =
+  useState(null);
+
+const [upscaleResult, setUpscaleResult] =
+  useState(null);
+
+const [upscaleScale, setUpscaleScale] =
+  useState(2);
+
+const [upscaleMode, setUpscaleMode] =
+  useState("standard");
+
+const [upscaling, setUpscaling] =
+  useState(false);
+
+const [upscaleInfo, setUpscaleInfo] =
+  useState(null);
+
+const [upscaleError, setUpscaleError] =
+  useState("");
+  
+const designTypes = [
+  "Backdrop",
+  "Biển quảng cáo",
+  "Banner",
+  "Poster",
+  "Standee",
+  "Tờ rơi",
+];
   const designTypes = [
     "Backdrop",
     "Biển quảng cáo",
@@ -343,10 +380,201 @@ function App() {
     }
   };
 
-  /* =========================================================
+ /* =========================================================
+   AI KÍCH NÉT ẢNH
+========================================================= */
+
+const handleUpscaleUpload = async (event) => {
+  const file =
+    event.target.files &&
+    event.target.files[0];
+
+  if (!file) {
+    return;
+  }
+
+  if (!file.type.startsWith("image/")) {
+    setUpscaleError(
+      "Vui lòng chọn file JPG, PNG hoặc WEBP."
+    );
+    return;
+  }
+
+  try {
+    setUpscaleError("");
+    setUpscaleResult(null);
+    setUpscaleInfo(null);
+
+    const imageData =
+      await readImageAsDataURL(file);
+
+    setUpscaleImage(imageData);
+  } catch (uploadError) {
+    console.error(
+      "UPSCALE UPLOAD ERROR:",
+      uploadError
+    );
+
+    setUpscaleError(
+      "Không thể đọc hình ảnh."
+    );
+  }
+};
+
+const handleUpscale = async () => {
+  if (
+    !toolOn ||
+    upscaling ||
+    !upscaleImage
+  ) {
+    return;
+  }
+
+  setUpscaling(true);
+  setUpscaleError("");
+  setUpscaleResult(null);
+  setUpscaleInfo(null);
+
+  try {
+    const apiImage =
+      await compressImageForAPI(
+        upscaleImage,
+        2200
+      );
+
+    setProcessingStep(
+      "AI đang kích nét và phục hồi chi tiết ảnh..."
+    );
+
+    const response =
+      await fetch("/api/upscale", {
+        method: "POST",
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+        body: JSON.stringify({
+          image: apiImage,
+          scale: upscaleScale,
+          mode: upscaleMode,
+        }),
+      });
+
+    if (!response.ok) {
+      let message =
+        "Không thể kích nét ảnh.";
+
+      try {
+        const errorData =
+          await response.json();
+
+        message =
+          errorData.error ||
+          message;
+      } catch {
+        // Giữ thông báo mặc định
+      }
+
+      throw new Error(message);
+    }
+
+    const blob =
+      await response.blob();
+
+    if (!blob.size) {
+      throw new Error(
+        "Ảnh sau khi kích nét không có dữ liệu."
+      );
+    }
+
+    const resultURL =
+      URL.createObjectURL(blob);
+
+    const originalWidth =
+      response.headers.get(
+        "X-Original-Width"
+      );
+
+    const originalHeight =
+      response.headers.get(
+        "X-Original-Height"
+      );
+
+    const outputWidth =
+      response.headers.get(
+        "X-Output-Width"
+      );
+
+    const outputHeight =
+      response.headers.get(
+        "X-Output-Height"
+      );
+
+    setUpscaleResult(resultURL);
+
+    setUpscaleInfo({
+      originalWidth:
+        originalWidth || "?",
+      originalHeight:
+        originalHeight || "?",
+      outputWidth:
+        outputWidth || "?",
+      outputHeight:
+        outputHeight || "?",
+      scale:
+        response.headers.get(
+          "X-Scale"
+        ) || upscaleScale,
+      mode:
+        response.headers.get(
+          "X-Mode"
+        ) || upscaleMode,
+    });
+
+    setProcessingStep("");
+
+  } catch (upscaleErrorValue) {
+    console.error(
+      "UPSCALE ERROR:",
+      upscaleErrorValue
+    );
+
+    setUpscaleError(
+      upscaleErrorValue?.message ||
+        "Không thể kích nét ảnh."
+    );
+
+    setProcessingStep("");
+
+  } finally {
+    setUpscaling(false);
+  }
+};
+
+const handleDownloadUpscale = () => {
+  if (!upscaleResult) {
+    return;
+  }
+
+  const link =
+    document.createElement("a");
+
+  link.href = upscaleResult;
+
+  link.download =
+    "AI-Kich-Net-" +
+    upscaleScale +
+    "x.png";
+
+  document.body.appendChild(link);
+
+  link.click();
+
+  document.body.removeChild(link);
+};
+   /* =========================================================
      ASPECT
   ========================================================= */
-
   const getAspectRatio = (w, h) => {
     if (!w || !h) {
       return 0;
@@ -1647,8 +1875,383 @@ function App() {
               </button>
             </div>
           </section>
+                 {/* =========================================================
+             AI KÍCH NÉT ẢNH
+          ========================================================= */}
+
+          <section
+            style={{
+              marginTop: "18px",
+              padding: "14px",
+              border: "1px solid rgba(255,255,255,0.10)",
+              borderRadius: "14px",
+              background: "rgba(255,255,255,0.035)",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: "12px",
+              }}
+            >
+              <div>
+                <div
+                  style={{
+                    fontSize: "13px",
+                    fontWeight: "800",
+                    letterSpacing: "0.5px",
+                  }}
+                >
+                  AI KÍCH NÉT ẢNH
+                </div>
+
+                <div
+                  style={{
+                    marginTop: "3px",
+                    fontSize: "10px",
+                    opacity: 0.55,
+                  }}
+                >
+                  Tăng độ phân giải • Phục hồi chi tiết • In ấn
+                </div>
+              </div>
+
+              <div
+                style={{
+                  padding: "4px 7px",
+                  borderRadius: "6px",
+                  fontSize: "9px",
+                  fontWeight: "800",
+                  background: "rgba(80,220,150,0.12)",
+                  color: "#6ff0aa",
+                }}
+              >
+                AI
+              </div>
+            </div>
+
+            {/* CHỌN ẢNH */}
+
+            <label
+              style={{
+                display: "block",
+                padding: "11px",
+                border: "1px dashed rgba(255,255,255,0.18)",
+                borderRadius: "10px",
+                textAlign: "center",
+                cursor: "pointer",
+                fontSize: "11px",
+                background: "rgba(255,255,255,0.025)",
+              }}
+            >
+              {upscaleImage
+                ? "✓ Đã chọn ảnh"
+                : "＋ Chọn ảnh cần kích nét"}
+
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                onChange={handleUpscaleUpload}
+                style={{ display: "none" }}
+              />
+            </label>
+
+            {/* ẢNH GỐC */}
+
+            {upscaleImage && (
+              <div
+                style={{
+                  marginTop: "10px",
+                  borderRadius: "10px",
+                  overflow: "hidden",
+                  background: "#111",
+                }}
+              >
+                <img
+                  src={upscaleImage}
+                  alt="Ảnh cần kích nét"
+                  style={{
+                    display: "block",
+                    width: "100%",
+                    maxHeight: "150px",
+                    objectFit: "contain",
+                  }}
+                />
+              </div>
+            )}
+
+            {/* MỨC ĐỘ KÍCH NÉT */}
+
+            <div style={{ marginTop: "12px" }}>
+              <div
+                style={{
+                  fontSize: "10px",
+                  opacity: 0.6,
+                  marginBottom: "7px",
+                }}
+              >
+                MỨC ĐỘ KÍCH NÉT
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(4, 1fr)",
+                  gap: "6px",
+                }}
+              >
+                {[2, 4, 8].map((scale) => (
+                  <button
+                    key={scale}
+                    type="button"
+                    onClick={() => {
+                      setUpscaleScale(scale);
+                      setUpscaleMode("standard");
+                    }}
+                    style={{
+                      padding: "8px 4px",
+                      borderRadius: "7px",
+                      border:
+                        upscaleScale === scale &&
+                        upscaleMode === "standard"
+                          ? "1px solid rgba(120,180,255,0.8)"
+                          : "1px solid rgba(255,255,255,0.10)",
+                      background:
+                        upscaleScale === scale &&
+                        upscaleMode === "standard"
+                          ? "rgba(80,140,255,0.16)"
+                          : "rgba(255,255,255,0.035)",
+                      color: "inherit",
+                      fontSize: "10px",
+                      fontWeight: "700",
+                      cursor: "pointer",
+                    }}
+                  >
+                    {scale}×
+                  </button>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUpscaleScale(4);
+                    setUpscaleMode("print");
+                  }}
+                  style={{
+                    padding: "8px 4px",
+                    borderRadius: "7px",
+                    border:
+                      upscaleMode === "print"
+                        ? "1px solid rgba(120,180,255,0.8)"
+                        : "1px solid rgba(255,255,255,0.10)",
+                    background:
+                      upscaleMode === "print"
+                        ? "rgba(80,140,255,0.16)"
+                        : "rgba(255,255,255,0.035)",
+                    color: "inherit",
+                    fontSize: "9px",
+                    fontWeight: "800",
+                    cursor: "pointer",
+                  }}
+                >
+                  PRINT HD
+                </button>
+              </div>
+            </div>
+
+            {/* CHẾ ĐỘ */}
+
+            <div
+              style={{
+                marginTop: "10px",
+                display: "flex",
+                gap: "6px",
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setUpscaleMode("standard")}
+                style={{
+                  flex: 1,
+                  padding: "7px",
+                  borderRadius: "7px",
+                  border:
+                    upscaleMode === "standard"
+                      ? "1px solid rgba(255,255,255,0.28)"
+                      : "1px solid rgba(255,255,255,0.08)",
+                  background:
+                    upscaleMode === "standard"
+                      ? "rgba(255,255,255,0.08)"
+                      : "transparent",
+                  color: "inherit",
+                  fontSize: "9px",
+                  cursor: "pointer",
+                }}
+              >
+                STANDARD
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setUpscaleMode("print")}
+                style={{
+                  flex: 1,
+                  padding: "7px",
+                  borderRadius: "7px",
+                  border:
+                    upscaleMode === "print"
+                      ? "1px solid rgba(255,255,255,0.28)"
+                      : "1px solid rgba(255,255,255,0.08)",
+                  background:
+                    upscaleMode === "print"
+                      ? "rgba(255,255,255,0.08)"
+                      : "transparent",
+                  color: "inherit",
+                  fontSize: "9px",
+                  cursor: "pointer",
+                }}
+              >
+                PRINT
+              </button>
+            </div>
+
+            {/* NÚT KÍCH NÉT */}
+
+            <button
+              type="button"
+              disabled={!upscaleImage || upscaling || !toolOn}
+              onClick={handleUpscale}
+              style={{
+                width: "100%",
+                marginTop: "12px",
+                padding: "11px",
+                border: "none",
+                borderRadius: "9px",
+                background:
+                  !upscaleImage || upscaling || !toolOn
+                    ? "rgba(255,255,255,0.08)"
+                    : "linear-gradient(135deg, #7c5cff, #4f8cff)",
+                color: "#fff",
+                fontSize: "11px",
+                fontWeight: "800",
+                letterSpacing: "0.4px",
+                cursor:
+                  !upscaleImage || upscaling || !toolOn
+                    ? "not-allowed"
+                    : "pointer",
+              }}
+            >
+              {upscaling
+                ? "AI ĐANG KÍCH NÉT..."
+                : "✨ KÍCH NÉT ẢNH"}
+            </button>
+
+            {/* LỖI */}
+
+            {upscaleError && (
+              <div
+                style={{
+                  marginTop: "9px",
+                  padding: "8px",
+                  borderRadius: "7px",
+                  background: "rgba(255,70,70,0.10)",
+                  fontSize: "10px",
+                  lineHeight: 1.4,
+                }}
+              >
+                {upscaleError}
+              </div>
+            )}
+
+            {/* THÔNG TIN KẾT QUẢ */}
+
+            {upscaleInfo && (
+              <div
+                style={{
+                  marginTop: "10px",
+                  padding: "9px",
+                  borderRadius: "8px",
+                  background: "rgba(255,255,255,0.04)",
+                  fontSize: "9px",
+                  lineHeight: 1.6,
+                }}
+              >
+                <div>
+                  Gốc:{" "}
+                  <strong>
+                    {upscaleInfo.originalWidth} ×{" "}
+                    {upscaleInfo.originalHeight}px
+                  </strong>
+                </div>
+
+                <div>
+                  Sau kích nét:{" "}
+                  <strong>
+                    {upscaleInfo.outputWidth} ×{" "}
+                    {upscaleInfo.outputHeight}px
+                  </strong>
+                </div>
+
+                <div>
+                  Mức:{" "}
+                  <strong>
+                    {upscaleInfo.scale}×
+                  </strong>
+                </div>
+              </div>
+            )}
+
+            {/* KẾT QUẢ */}
+
+            {upscaleResult && (
+              <>
+                <div
+                  style={{
+                    marginTop: "10px",
+                    borderRadius: "10px",
+                    overflow: "hidden",
+                    background: "#111",
+                  }}
+                >
+                  <img
+                    src={upscaleResult}
+                    alt="Ảnh sau khi kích nét"
+                    style={{
+                      display: "block",
+                      width: "100%",
+                      maxHeight: "170px",
+                      objectFit: "contain",
+                    }}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleDownloadUpscale}
+                  style={{
+                    width: "100%",
+                    marginTop: "9px",
+                    padding: "9px",
+                    borderRadius: "8px",
+                    border:
+                      "1px solid rgba(255,255,255,0.14)",
+                    background:
+                      "rgba(255,255,255,0.06)",
+                    color: "inherit",
+                    fontSize: "10px",
+                    fontWeight: "800",
+                    cursor: "pointer",
+                  }}
+                >
+                  ↓ TẢI ẢNH ĐÃ KÍCH NÉT
+                </button>
+              </>
+            )}
+          </section>
         </aside>
-      </div>
+         </div>
 
       <footer className="footer">
         <span>
