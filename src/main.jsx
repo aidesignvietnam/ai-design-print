@@ -675,7 +675,7 @@ const handleDownloadUpscale = () => {
     }
 
     const parsedSize = parseSizeFromPrompt(prompt);
-
+    console.log("PARSED SIZE:", parsedSize);
     const w = parsedSize?.width ?? Number(width);
     const h = parsedSize?.height ?? Number(height);
     const selectedUnit = parsedSize?.unit ?? unit;
