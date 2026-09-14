@@ -371,7 +371,63 @@ const [vectorError, setVectorError] = useState("");
       setProcessingStep("");
     }
   };
+  /* =========================================================
+     AI TÁCH LỚP THIẾT KẾ
+  ========================================================= */
 
+  const handleLayerExtraction = async () => {
+    if (!toolOn || !uploadedImageForAPI) {
+      return;
+    }
+
+    try {
+      setError("");
+      setProcessingStep(
+        "AI đang phân tích và tách lớp hình ảnh..."
+      );
+
+      const response = await fetch("/api/layers", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          image: uploadedImageForAPI,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data?.error ||
+            "Không thể tách lớp hình ảnh."
+        );
+      }
+
+      console.log(
+        "AI LAYERS RESULT:",
+        data
+      );
+
+      setProcessingStep(
+        "AI đã tách lớp hình ảnh thành công."
+      );
+
+    } catch (layerError) {
+      console.error(
+        "LAYER EXTRACTION ERROR:",
+        layerError
+      );
+
+      setError(
+        layerError?.message ||
+          "Không thể tách lớp hình ảnh."
+      );
+
+      setProcessingStep("");
+    }
+  };
  /* =========================================================
    AI KÍCH NÉT ẢNH
 ========================================================= */
@@ -1484,7 +1540,16 @@ const handleDownloadSVG = () => {
               />
             </div>
           )}
-
+{uploadedImage && (
+  <button
+    type="button"
+    className="layer-extract-button"
+    onClick={handleLayerExtraction}
+    disabled={!toolOn || !uploadedImageForAPI}
+  >
+    ✦ TÁCH LỚP AI
+  </button>
+)}
           <div className="sidebar-bottom">
             <div className="version">
               AI DESIGN PRINT
