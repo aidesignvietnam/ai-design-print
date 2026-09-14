@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@fal-ai/client": "^1.10.1",
     "imagetracerjs": "^1.2.6",
     "jspdf": "^4.0.0",
     "openai": "^5.19.1",
